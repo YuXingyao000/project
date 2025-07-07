@@ -13,3 +13,4 @@
 4. Remove n furthest points from the viewpoint.
 5. Downsample the remaining point clouds to 2048 points as the input data for models. 
  
+

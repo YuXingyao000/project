@@ -6,7 +6,8 @@ import traceback
 import shutil
 import sys
 
-from data import SolidWrapper, ABCReader
+from tools.data import SolidWrapper, ABCReader
+
 
 
 def process_step_folder(data_root, output_root, step_ids, brep_sample_resolution, point_cloud_sample_num):
