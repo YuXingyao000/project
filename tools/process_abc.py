@@ -17,12 +17,12 @@ def process_step_folder(data_root, output_root, step_ids, brep_sample_resolution
             reader.read_step_file(data_root / step_id / os.listdir(data_root / step_id)[0]) # Only one step file in each ABC folder
             solids = reader.solids
             if len(solids) > 1:
-                print(f"Step {step_id} has {len(solids)} solids, skipping")
-                continue
+                raise ValueError(f"Step {step_id} has {len(solids)} solids, skipping")
             if len(solids) == 0:
-                print(f"Step {step_id} has no solids, skipping")
-                continue
+                raise ValueError(f"Step {step_id} has no solids, skipping")
             shape_wrapper = SolidWrapper(solids[0])
+            if len(shape_wrapper.get_surfaces()) > 64:
+                raise ValueError(f"Step {step_id} has too many surfaces, skipping")
             shape_wrapper.normalize_shape()
             shape_wrapper.export_solid(output_root / step_id / f"{step_id}.step")
             shape_wrapper.export_mesh(output_root / step_id / f"{step_id}.stl")
@@ -62,10 +62,8 @@ if __name__ == '__main__':
     
     if args.use_ray:
         # Start Ray without dashboard to avoid Windows issues
-        context = ray.init(
-            num_cpus=args.num_cpus,
-        )
-        print(f"Ray initialized with {args.num_cpus} CPUs (dashboard disabled)")
+        context = ray.init()
+        print(f"Ray initialized with {context.dashboard_url} (dashboard disabled)")
         
         process_step_folder_remote = ray.remote(process_step_folder)
         tasks = []

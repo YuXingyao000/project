@@ -4,18 +4,19 @@ import random
 
 
 class PartialPointCloudSampler:
-    def __init__(self, point_cloud_path):
+    def __init__(self, point_cloud_path, is_evaluation=False):
+        self.is_evaluation = is_evaluation
         point_cloud = o3d.io.read_point_cloud(point_cloud_path)
         self.point_cloud = np.asarray(point_cloud.points)
 
     @staticmethod
-    def generate_viewpoints(radius=2, elevations=[30, -30], num_azimuths=8):
+    def generate_viewpoints(radius=2, elevation=45, num_azimuths=4):
         """
         Generate 16 viewpoints: 2 elevation rings, 8 azimuths each.
         Returns a list of (x, y, z) camera positions.
         """
         viewpoints = []
-        for elev in elevations:
+        for elev in [elevation, -elevation]:
             elev_rad = np.deg2rad(elev)
             for i in range(num_azimuths):
                 azim = i * 360 / num_azimuths
@@ -58,21 +59,26 @@ class PartialPointCloudSampler:
         remaining_points = self.point_cloud[remaining_indices]
         
         # Step 4: Downsample the remaining point clouds to 2048 points
-        if len(remaining_points) > 2048:
-            # Randomly sample 2048 points
-            random_indices = np.random.choice(len(remaining_points), 2048, replace=False)
-            partial_point_cloud = remaining_points[random_indices]
+        if self.is_evaluation:
+            # For evaluation, we use the full point cloud
+            partial_point_cloud = remaining_points
         else:
-            # If we have fewer than 2048 points, pad with zeros or repeat points
-            if len(remaining_points) == 0:
-                # If no points remain, return zeros
-                partial_point_cloud = np.zeros((2048, 3))
+            # This is just for training debug data
+            if len(remaining_points) > 2048:
+                # Randomly sample 2048 points
+                random_indices = np.random.choice(len(remaining_points), 2048, replace=False)
+                partial_point_cloud = remaining_points[random_indices]
             else:
-                # Repeat points to reach 2048
-                repeat_times = 2048 // len(remaining_points)
-                remainder = 2048 % len(remaining_points)
-                partial_point_cloud = np.tile(remaining_points, (repeat_times, 1))
-                if remainder > 0:
-                    partial_point_cloud = np.vstack([partial_point_cloud, remaining_points[:remainder]])
-        
+                # If we have fewer than 2048 points, pad with zeros or repeat points
+                if len(remaining_points) == 0:
+                    # If no points remain, return zeros
+                    partial_point_cloud = np.zeros((2048, 3))
+                else:
+                    # Repeat points to reach 2048
+                    repeat_times = 2048 // len(remaining_points)
+                    remainder = 2048 % len(remaining_points)
+                    partial_point_cloud = np.tile(remaining_points, (repeat_times, 1))
+                    if remainder > 0:
+                        partial_point_cloud = np.vstack([partial_point_cloud, remaining_points[:remainder]])
+
         return partial_point_cloud

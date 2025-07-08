@@ -1,0 +1,41 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "abc_process",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "tools.process_abc",
+            "args": [
+                "--data_root",
+                "data",
+                "--output_root",
+                "processed_data",
+                "--batch_size",
+                "32",
+                "--brep_sample_resolution",
+                "32",
+                "--point_cloud_sample_num",
+                "8192"
+            ]
+        },
+        {
+            "name": "partial_point_cloud",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "tools.create_partial_point_cloud",
+            "args": [
+                "--data_root",
+                "processed_data",
+                "--output_root",
+                "processed_data_partial",
+                "--radius",
+                "2",
+                "--is_evaluation",
+            ]
+        }
+    ]
+}

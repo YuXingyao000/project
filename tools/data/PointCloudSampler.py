@@ -1,8 +1,6 @@
 import open3d as o3d
 import numpy as np
-import os
 
-from open3d.visualization.rendering import OffscreenRenderer, MaterialRecord  # type: ignore
 
 class PointCloudSampler:
     def __init__(self, mesh) -> None:

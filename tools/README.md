@@ -7,10 +7,7 @@
 5. Downsample the remaining point clouds to 2048 points as the input data for models. 
 
 ## Evaluation
-1. Choose a viewpoint from 8 viewpoints.
-2. Randomly choose n as 2048, 4096 or 6144.
-3. Randomly choose a viewpoint from 16 viewpoints.
-4. Remove n furthest points from the viewpoint.
-5. Downsample the remaining point clouds to 2048 points as the input data for models. 
+1. For every viewpoint from 8 viewpoints.
+2. For n = 2048, 4096, and 6144.
+3. Remove n furthest points from the viewpoint.
  
-
