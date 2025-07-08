@@ -13,6 +13,8 @@ from tools.data import SolidWrapper, ABCReader
 def process_step_folder(data_root, output_root, step_ids, brep_sample_resolution, point_cloud_sample_num):
     for step_id in step_ids:
         try:
+            if not os.path.exists(output_root / step_id):
+                os.makedirs(output_root / step_id)
             reader = ABCReader()
             reader.read_step_file(data_root / step_id / os.listdir(data_root / step_id)[0]) # Only one step file in each ABC folder
             solids = reader.solids
@@ -34,8 +36,6 @@ def process_step_folder(data_root, output_root, step_ids, brep_sample_resolution
                 last_traceback = tb_list[-1]
                 f.write(step_id + ": " + str(e) + "\n")
                 f.write(f"An error occurred on line {last_traceback.lineno} in {last_traceback.name}\n\n")
-                print(step_id + ": " + str(e))
-                print(f"An error occurred on line {last_traceback.lineno} in {last_traceback.name}\n\n")
                 print(e)
                 shutil.rmtree(output_root / step_id)
             continue

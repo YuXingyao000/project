@@ -90,10 +90,18 @@ class SolidWrapper:
         transform = BRepBuilderAPI_Transform(scale_trsf)
         transform.Perform(self.solid)
         self.solid = topods.Solid(transform.Shape())
+        # Clear cached data
+        self.surfaces = None
+        self.curves = None
+        self.vertices = None
+        self.mesh = None
+        self.point_cloud = None
+        self.face_sample_points = None
     
-    def get_triangulations(self, line_deflection=0.1, angle_deflection=0.1):
+    def get_triangulations(self, line_deflection=0.1, angle_deflection=0.5):
         if line_deflection > 0:
             mesh = BRepMesh_IncrementalMesh(self.solid, line_deflection, False, angle_deflection)
+            mesh.Perform()  # Actually perform the meshing
         v = []
         f = []
         surfaces = self.get_surfaces()

@@ -208,3 +208,6 @@ __marimo__/
 
 processed_data/
 processed_data_partial/
+
+# Python cache files
+tools/__pycache__/

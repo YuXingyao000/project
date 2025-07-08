@@ -3,6 +3,7 @@ import numpy as np
 import argparse
 from pathlib import Path
 import ray
+import open3d as o3d
 
 from tools.data.PartialPointCloudSampler import PartialPointCloudSampler
 
@@ -94,5 +95,14 @@ if __name__ == "__main__":
                          simple=partial_point_clouds[0], 
                          moderate=partial_point_clouds[1], 
                          hard=partial_point_clouds[2])
+                pc = o3d.geometry.PointCloud()
+                pc.points = o3d.utility.Vector3dVector(partial_point_clouds[0])
+                o3d.io.write_point_cloud(output_root / data_id / f"{data_id}_{i}_simple.ply", pc)
+                pc = o3d.geometry.PointCloud()
+                pc.points = o3d.utility.Vector3dVector(partial_point_clouds[1])
+                o3d.io.write_point_cloud(output_root / data_id / f"{data_id}_{i}_moderate.ply", pc)
+                pc = o3d.geometry.PointCloud()
+                pc.points = o3d.utility.Vector3dVector(partial_point_clouds[2])
+                o3d.io.write_point_cloud(output_root / data_id / f"{data_id}_{i}_hard.ply", pc)
 
                 
