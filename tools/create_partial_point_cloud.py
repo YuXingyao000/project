@@ -1,14 +1,21 @@
 import os
+import sys
 import numpy as np
 import argparse
 from pathlib import Path
 import ray
 import open3d as o3d
 
-from tools.data.PartialPointCloudSampler import PartialPointCloudSampler
+# Add the project root to Python path for Ray workers
+project_root = Path(__file__).parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 def process_data_id(batch_ids, data_root, output_root, viewpoints, is_evaluation):
     """Process a batch of data_ids with ray remote function"""
+    # Import inside function to avoid Ray serialization issues
+    from tools.data.PartialPointCloudSampler import PartialPointCloudSampler
+    
     for data_id in batch_ids:
         # Search for ply file
         data_path = data_root / data_id / f"{data_id}.ply"
@@ -16,21 +23,25 @@ def process_data_id(batch_ids, data_root, output_root, viewpoints, is_evaluation
             continue
     
         # Create output directory
-        if not (output_root / data_id).exists():
-            os.makedirs(output_root / data_id)
+        for n_points in [2048, 4096, 6144]:
+            criterion = "simple" if n_points == 2048 else "moderate" if n_points == 4096 else "hard"
+            if not (output_root / criterion / data_id).exists():
+                os.makedirs(output_root / criterion / data_id)
 
         # Sample partial point clouds
         sampler = PartialPointCloudSampler(data_path, is_evaluation=is_evaluation)
-        for i, viewpoint in enumerate(viewpoints):
-            partial_point_clouds = []
-            for n_points in [2048, 4096, 6144]:
+        for n_points in [2048, 4096, 6144]:
+            criterion = "simple" if n_points == 2048 else "moderate" if n_points == 4096 else "hard"
+            for i, viewpoint in enumerate(viewpoints):
                 sampled_point_cloud = sampler.sample_partial_point_cloud(viewpoint, n_points=n_points)
-                partial_point_clouds.append(sampled_point_cloud)
-
-            np.savez(output_root / data_id / f"{data_id}_{i}.npz", 
-                     simple=partial_point_clouds[0], 
-                     moderate=partial_point_clouds[1], 
-                     hard=partial_point_clouds[2])
+                np.savez(
+                    output_root / criterion / data_id / f"{data_id}_{i}.npz",
+                    pc=sampled_point_cloud,
+                )
+                pc = o3d.geometry.PointCloud()
+                pc.points = o3d.utility.Vector3dVector(sampled_point_cloud)
+                o3d.io.write_point_cloud(output_root / criterion / data_id / f"{data_id}_{i}.ply", pc)
+            
     
     return f"Processed {data_id}"
 
@@ -51,6 +62,9 @@ if __name__ == "__main__":
     is_evaluation = args.is_evaluation
     batch_size = args.batch_size
 
+    # Import for viewpoint generation
+    from tools.data.PartialPointCloudSampler import PartialPointCloudSampler
+    
     viewpoints = PartialPointCloudSampler.generate_viewpoints(radius=args.radius, elevation=args.elevation, num_azimuths=args.num_azimuths)
     
     # Get all data IDs
@@ -73,6 +87,9 @@ if __name__ == "__main__":
         # Shutdown Ray
         ray.shutdown()
     else:
+        # Import for non-Ray execution
+        from tools.data.PartialPointCloudSampler import PartialPointCloudSampler
+        
         for data_id in data_ids:
             # Search for ply file
             data_path = data_root / data_id / f"{data_id}.ply"
@@ -80,29 +97,24 @@ if __name__ == "__main__":
                 continue
             
             # Create output directory
-            if not (output_root / data_id).exists():
-                os.makedirs(output_root / data_id)
+            for n_points in [2048, 4096, 6144]:
+                criterion = "simple" if n_points == 2048 else "moderate" if n_points == 4096 else "hard"
+                if not (output_root / criterion / data_id).exists():
+                    os.makedirs(output_root / criterion / data_id)
 
             # Sample partial point clouds
             sampler = PartialPointCloudSampler(data_path, is_evaluation=is_evaluation)
-            for i, viewpoint in enumerate(viewpoints):
-                partial_point_clouds = []
-                for n_points in [2048, 4096, 6144]:
+            for n_points in [2048, 4096, 6144]:
+                criterion = "simple" if n_points == 2048 else "moderate" if n_points == 4096 else "hard"
+                for i, viewpoint in enumerate(viewpoints):
                     sampled_point_cloud = sampler.sample_partial_point_cloud(viewpoint, n_points=n_points)
-                    partial_point_clouds.append(sampled_point_cloud)
+                    np.savez(
+                        output_root / criterion / data_id / f"{data_id}_{i}.npz",
+                        pc=sampled_point_cloud,
+                    )
+                    pc = o3d.geometry.PointCloud()
+                    pc.points = o3d.utility.Vector3dVector(sampled_point_cloud)
+                    o3d.io.write_point_cloud(output_root / criterion / data_id / f"{data_id}_{i}.ply", pc)
 
-                np.savez(output_root / data_id / f"{data_id}_{i}.npz", 
-                         simple=partial_point_clouds[0], 
-                         moderate=partial_point_clouds[1], 
-                         hard=partial_point_clouds[2])
-                pc = o3d.geometry.PointCloud()
-                pc.points = o3d.utility.Vector3dVector(partial_point_clouds[0])
-                o3d.io.write_point_cloud(output_root / data_id / f"{data_id}_{i}_simple.ply", pc)
-                pc = o3d.geometry.PointCloud()
-                pc.points = o3d.utility.Vector3dVector(partial_point_clouds[1])
-                o3d.io.write_point_cloud(output_root / data_id / f"{data_id}_{i}_moderate.ply", pc)
-                pc = o3d.geometry.PointCloud()
-                pc.points = o3d.utility.Vector3dVector(partial_point_clouds[2])
-                o3d.io.write_point_cloud(output_root / data_id / f"{data_id}_{i}_hard.ply", pc)
 
                 

@@ -29,9 +29,9 @@
             "module": "tools.create_partial_point_cloud",
             "args": [
                 "--data_root",
-                "processed_data",
+                "/mnt/d/data/processed_test_data",
                 "--output_root",
-                "processed_data_partial",
+                "/mnt/d/data/processed_test_data_partial",
                 "--radius",
                 "2",
                 "--is_evaluation",

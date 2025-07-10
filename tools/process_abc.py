@@ -8,7 +8,8 @@ import sys
 
 from tools.data import SolidWrapper, ABCReader
 
-
+MAX_SURFACE_NUM = 30
+MIN_SURFACE_NUM = 7
 
 def process_step_folder(data_root, output_root, step_ids, brep_sample_resolution, point_cloud_sample_num):
     for step_id in step_ids:
@@ -23,8 +24,8 @@ def process_step_folder(data_root, output_root, step_ids, brep_sample_resolution
             if len(solids) == 0:
                 raise ValueError(f"Step {step_id} has no solids, skipping")
             shape_wrapper = SolidWrapper(solids[0])
-            if len(shape_wrapper.get_surfaces()) > 64:
-                raise ValueError(f"Step {step_id} has too many surfaces, skipping")
+            if len(shape_wrapper.get_surfaces()) > MAX_SURFACE_NUM or len(shape_wrapper.get_surfaces()) < MIN_SURFACE_NUM:
+                raise ValueError(f"Step {step_id} has {len(shape_wrapper.get_surfaces())} surfaces, skipping")
             shape_wrapper.normalize_shape()
             shape_wrapper.export_solid(output_root / step_id / f"{step_id}.step")
             shape_wrapper.export_mesh(output_root / step_id / f"{step_id}.stl")
