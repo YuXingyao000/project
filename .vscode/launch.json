@@ -36,6 +36,15 @@
                 "2",
                 "--is_evaluation",
             ]
-        }
+        },
+        {
+            "name": "dataset",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "dataset_debug",
+            "args": [
+
+            ]
+        },
     ]
 }

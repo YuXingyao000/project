@@ -1,0 +1,8 @@
+dataset:
+  class_name: ABCDataset
+  data_root: /mnt/d/data/test
+  mode: train
+  level: simple
+  num_workers: 4
+  pin_memory: True
+  batch_size: 1
