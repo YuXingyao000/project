@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from utils import fps_downsample, knn_index
+from model_utils import fps_downsample, knn_index
 from einops import rearrange, repeat
 
 class kNNQuery(nn.Module):

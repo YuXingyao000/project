@@ -10,8 +10,7 @@ import torch.nn as nn
 from timm.models.layers import trunc_normal_
 
 from DGCNN import DGCNN_Grouper
-from .encoder import GeometryAwareTransformerEncoder, GeometryAwareTransformerDecoder
-from .geometry import sinusoidal_position_encoding
+from encoder import GeometryAwareTransformerEncoder, GeometryAwareTransformerDecoder
 
 
 class PCTransformer(nn.Module):
