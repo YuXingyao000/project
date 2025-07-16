@@ -9,8 +9,8 @@ import torch
 import torch.nn as nn
 from einops import rearrange
 
-from attention import MultiHeadAttention, FeedForward
-from DGCNN import kNNQuery
+from model.attention import MultiHeadAttention, FeedForward
+from model.DGCNN import kNNQuery
 
 
 class SelfAttentionBlock(nn.Module):

@@ -7,7 +7,7 @@ combine multiple transformer blocks for point cloud processing.
 
 import torch.nn as nn
 
-from transformer_blocks import (
+from model.transformer_blocks import (
     SelfAttentionBlock, 
     GeometryAwareSelfAttentionBlock,
     CrossAttentionBlock,

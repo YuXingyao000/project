@@ -8,9 +8,9 @@
 import logging
 import open3d
 import torch
-from extensions.chamfer_dist import ChamferDistanceL1, ChamferDistanceL2
+from model.chamfer_distance import ChamferDistanceL1, ChamferDistanceL2
 import os
-from extensions.emd import emd_module as emd
+from model.emd import emd_module as emd
 
 class Metrics(object):
     ITEMS = [{

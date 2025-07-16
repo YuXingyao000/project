@@ -2,14 +2,13 @@ import torch
 from torch import nn
 
 from pointnet2_ops import pointnet2_utils
-from chamfer import ChamferDistanceL1
 from model.PCTransformer import PCTransformer
 from model.geometry import extract_coordinates_and_features
 
 
 def fps(pc, num):
     fps_idx = pointnet2_utils.furthest_point_sample(pc, num) 
-    sub_pc = pointnet2_utils.gather_operation(pc.transpose(1, 2).contiguous(), fps_idx).transpose(1,2).contiguous()
+    sub_pc = pointnet2_utils.gather_operation(pc.transpose(1, 2).contiguous(), fps_idx).transpose(1,2).contiguous() # type: ignore
     return sub_pc
 
 
@@ -59,12 +58,13 @@ class Fold(nn.Module):
 
 
 class PoinTr(nn.Module):
-    def __init__(self, config):
+    def __init__(self):
         super().__init__()
-        self.trans_dim = config.trans_dim
-        self.knn_layer = config.knn_layer
-        self.num_pred = config.num_pred
-        self.num_query = config.num_query
+        self.trans_dim = 384
+        self.knn_layer = 1
+        self.num_pred = 8192
+        self.num_query = 32
+        self.global_feature_dim = 1024
 
         self.fold_step = int(pow(self.num_pred//self.num_query, 0.5) + 0.5)
         self.base_model = PCTransformer(in_chans = 3, embed_dim = self.trans_dim, depth = [[1, 5], [1, 5]], num_heads = 6, num_query = self.num_query)
@@ -72,61 +72,61 @@ class PoinTr(nn.Module):
         self.foldingnet = Fold(self.trans_dim, step = self.fold_step, hidden_dim = 256)  # rebuild a cluster point
 
         self.increase_dim = nn.Sequential(
-            nn.Conv1d(self.trans_dim, 1024, 1),
-            nn.BatchNorm1d(1024),
+            nn.Conv1d(self.trans_dim, self.global_feature_dim, 1),
+            nn.BatchNorm1d(self.global_feature_dim),
             nn.LeakyReLU(negative_slope=0.2),
-            nn.Conv1d(1024, 1024, 1)
+            nn.Conv1d(self.global_feature_dim, self.global_feature_dim, 1)
         )
-        self.reduce_map = nn.Linear(self.trans_dim + 1027, self.trans_dim)
+        self.reduce_map = nn.Linear(self.trans_dim + self.global_feature_dim + 3, self.trans_dim)
 
         self.brep_grid_test = nn.Sequential(
             nn.Conv1d(self.num_query, 30, 1),
-            nn.LayerNorm(self.trans_dim + 1027),
+            nn.LayerNorm(self.trans_dim + self.global_feature_dim + 3),
             nn.LeakyReLU(negative_slope=0.2),
-            nn.Linear(self.trans_dim + 1027, 32 * 32 * 3),
+            nn.Linear(self.trans_dim + self.global_feature_dim + 3, 32 * 32 * 3),
             nn.ReLU(inplace=True)
         )
         
         self.build_loss_func()
 
     def build_loss_func(self):
+        from model.chamfer_distance import ChamferDistanceL1
         self.loss_func = ChamferDistanceL1()
 
     def get_loss(self, coarse_point_cloud, rebuild_points, pred_brep_grid, gt_point_cloud, gt_brep_grid):
         loss_coarse = self.loss_func(coarse_point_cloud, gt_point_cloud)
-        loss_fine = self.loss_func(rebuild_points, gt_point_cloud)
+        # loss_fine = self.loss_func(rebuild_points, gt_point_cloud)
         loss_brep = self.loss_func(pred_brep_grid, gt_brep_grid)
-        return loss_coarse, loss_fine, loss_brep
+        return loss_coarse,  loss_brep
 
     def forward(self, xyz):
         rebuild_points = self.base_model(xyz)  # bs, [3 + 384], num_query
 
-        coordinates, features = extract_coordinates_and_features(rebuild_points)
-        batch_size, feature_dim, num_query = features.shape
+        coordinates, incomplete_pc_features = extract_coordinates_and_features(rebuild_points)
+        batch_size, feature_dim, num_query = incomplete_pc_features.shape
 
-        global_feature = self.increase_dim(features.transpose(1,2)).transpose(1,2) # bs num_query 1024
+        global_feature = self.increase_dim(incomplete_pc_features).transpose(1,2) # bs num_query 1024
         global_feature = torch.max(global_feature, dim=1)[0] # bs 1024
 
         rebuild_feature = torch.cat([
-            global_feature.unsqueeze(-2).expand(-1, num_query, -1),
-            features,
-            coordinates], dim=-1)  # bs num_query 1027 + 384
+            global_feature.unsqueeze(-1).expand(-1, -1, num_query),
+            incomplete_pc_features,
+            coordinates], dim=-2).transpose(1,2).contiguous()  # bs num_query 1027 + 384
 
-        rebuild_feature = self.reduce_map(rebuild_feature.reshape(batch_size, num_query, -1)) # bs num_query 1027 + 384
         brep_grid_test = self.brep_grid_test(rebuild_feature)
         brep_grid_test = brep_grid_test.reshape(batch_size, 30, 32, 32, 3)
-        brep_grid_test = brep_grid_test.permute(0, 3, 1, 2).contiguous()
+        rebuild_feature = self.reduce_map(rebuild_feature.reshape(batch_size * self.num_query, -1)) # bs num_query 1027 + 384
         
         # # NOTE: try to rebuild pc
         # coarse_point_cloud = self.refine_coarse(rebuild_feature).reshape(B, M, 3)
 
         # NOTE: foldingNet
         relative_xyz = self.foldingnet(rebuild_feature).reshape(batch_size, num_query, 3, -1)    # bs num_query 3 S
-        rebuild_points = (relative_xyz + coordinates.unsqueeze(-1)).transpose(2,3).reshape(batch_size, -1, 3)  # bs num_pred 3
+        rebuild_points = (relative_xyz + coordinates.transpose(1,2).unsqueeze(-1)).transpose(2,3).reshape(batch_size, -1, 3)  # bs num_pred 3
 
         # cat the input
         inp_sparse = fps(xyz, self.num_query)
-        coarse_point_cloud = torch.cat([coordinates, inp_sparse], dim=1).contiguous()
+        coarse_point_cloud = torch.cat([coordinates.transpose(1,2), inp_sparse], dim=1).contiguous()
         rebuild_points = torch.cat([rebuild_points, xyz],dim=1).contiguous()
 
         return coarse_point_cloud, rebuild_points, brep_grid_test

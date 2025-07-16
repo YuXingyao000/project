@@ -19,6 +19,7 @@ from .geometry import (
     extract_coordinates_and_features,
     combine_coordinates_and_features
 )
+from .PoinTr import PoinTr
 
 __all__ = [
     'PCTransformer',

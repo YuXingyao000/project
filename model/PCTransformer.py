@@ -9,8 +9,8 @@ import torch
 import torch.nn as nn
 from timm.models.layers import trunc_normal_
 
-from DGCNN import DGCNN_Grouper
-from encoder import GeometryAwareTransformerEncoder, GeometryAwareTransformerDecoder
+from model.DGCNN import DGCNN_Grouper
+from model.encoder import GeometryAwareTransformerEncoder, GeometryAwareTransformerDecoder
 
 
 class PCTransformer(nn.Module):

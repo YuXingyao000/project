@@ -5,7 +5,7 @@ import trimesh
 from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
 
-import transform as transform 
+import dataset.transform as transform 
 
 class ABCDataset(Dataset):
     def __init__(self, root, level='simple', mode='train'):
@@ -22,7 +22,7 @@ class ABCDataset(Dataset):
             self.model_ids = os.listdir(self.root)[int(len(os.listdir(self.root)) * 0.75) : int(len(os.listdir(self.root)) * 0.875)]
         elif self.mode == 'test':
             self.model_ids = os.listdir(self.root)[int(len(os.listdir(self.root)) * 0.875):]
-        
+        self.model_ids = [model_id for model_id in self.model_ids if (self.root / model_id / f"{model_id}.npz").exists()]
         
     def __len__(self):
         return len(self.model_ids)

@@ -1,201 +1,185 @@
 import torch
-import torch.nn as nn
-import os
-import json
-from model import PCTransformer
-from utils import misc, dist_utils
+from model import PoinTr
+from utils import misc
 import time
-from utils.AverageMeter import AverageMeter
-from utils.metrics import Metrics
-from chamfer import ChamferDistanceL1, ChamferDistanceL2
+from model.chamfer_distance import ChamferDistanceL1, ChamferDistanceL2
 from dataset.dataset import ABCDataset
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+import os
+from datetime import datetime
+from tqdm import tqdm
 
-def run_net(args, config, train_writer=None, val_writer=None):
+def validate(model, val_dataloader, device):
+    """
+    Validation function
+    """
+    model.eval()
+    total_sparse_loss = 0.0
+    total_brep_loss = 0.0
+    total_loss = 0.0
+    num_batches = 0
+    
+    with torch.no_grad():
+        for gt_brep_grid, gt_point_cloud, partial_point_cloud, cropped_point_cloud in tqdm(val_dataloader, desc="Validating", leave=False):
+            gt = gt_point_cloud.to(device)
+            gt_brep_grid = gt_brep_grid.to(device)
+            partial = partial_point_cloud.to(device)
+            cropped = cropped_point_cloud.to(device)
+
+            coarse_point_cloud, rebuild_points, brep_grids = model(partial)
+            
+            sparse_loss, brep_loss = model.get_loss(coarse_point_cloud, rebuild_points, brep_grids, gt, gt_brep_grid)
+            
+            total_loss_val = sparse_loss + brep_loss
+            
+            total_sparse_loss += sparse_loss.item()
+            total_brep_loss += brep_loss.item()
+            total_loss += total_loss_val.item()
+            num_batches += 1
+    
+    # Calculate average losses
+    avg_sparse_loss = total_sparse_loss / num_batches
+    avg_brep_loss = total_brep_loss / num_batches
+    avg_total_loss = total_loss / num_batches
+    
+    return avg_sparse_loss, avg_brep_loss, avg_total_loss
+
+def run_net():
+    # Create tensorboard writer
+    current_time = datetime.now().strftime('%b%d_%H-%M-%S')
+    log_dir = os.path.join('runs', f'training_{current_time}')
+    writer = SummaryWriter(log_dir)
+    
     # build model
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    base_model = PCTransformer()
+    print(f"Using device: {device}")
+    
+    base_model = PoinTr()
     base_model.to(device)
-
 
     train_dataset = ABCDataset(root='/mnt/d/data/processed_data_step', mode='train')
     train_dataloader = DataLoader(train_dataset, batch_size=64, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
     val_dataset = ABCDataset(root='/mnt/d/data/processed_data_step', mode='val')
-    val_dataloader = DataLoader(val_dataset, batch_size=64, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
-    test_dataset = ABCDataset(root='/mnt/d/data/processed_data_step', mode='test', level='hard')
-    test_dataloader = DataLoader(test_dataset, batch_size=64, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=64, shuffle=False, num_workers=4, pin_memory=True, drop_last=True)
+    
+    print(f"Training samples: {len(train_dataset)}")
+    print(f"Validation samples: {len(val_dataset)}")
     
     # optimizer & scheduler
     optimizer = torch.optim.AdamW(base_model.parameters(), lr=1e-4, weight_decay=5e-4)
-    # Criterion
-    ChamferDisL1 = ChamferDistanceL1()
-    ChamferDisL2 = ChamferDistanceL2()
-
+    
     lambda_lr = lambda e: max(0.9 ** ((e - 0) / 21), 0.02) if e >= 0 else max(e / 0, 0.001)
     scheduler = [torch.optim.lr_scheduler.LambdaLR(optimizer, lambda_lr, last_epoch=-1), misc.BNMomentumScheduler(base_model, lambda_lr)]
 
     # training
     base_model.zero_grad()
-    for epoch in range(600):
+    best_val_loss = float('inf')
+    
+    for epoch in tqdm(range(600), desc="Training Progress"):
         base_model.train()
-        batch_start_time = time.time()
-
-        base_model.train()  # set model to training mode
-        n_batches = len(train_dataloader)
-        for idx, (gt_brep_grid, gt_point_cloud, partial_point_cloud, cropped_point_cloud) in enumerate(train_dataloader):
-            gt = gt_point_cloud.cuda()
-            gt_brep_grid = gt_brep_grid.cuda()
-            partial = partial_point_cloud.cuda()
-            cropped = cropped_point_cloud.cuda()
+        epoch_start_time = time.time()
+        
+        # Training phase
+        total_train_sparse_loss = 0.0
+        total_train_brep_loss = 0.0
+        total_train_loss = 0.0
+        num_train_batches = 0
+        
+        # Training loop with progress bar
+        train_pbar = tqdm(train_dataloader, desc=f"Epoch {epoch+1}/600", leave=False)
+        for idx, (gt_brep_grid, gt_point_cloud, partial_point_cloud, cropped_point_cloud) in enumerate(train_pbar):
+            gt = gt_point_cloud.to(device)
+            gt_brep_grid = gt_brep_grid.to(device)
+            partial = partial_point_cloud.to(device)
+            cropped = cropped_point_cloud.to(device)
 
             coarse_point_cloud, rebuild_points, brep_grids = base_model(partial)
             
-            sparse_loss, dense_loss, brep_loss = base_model.get_loss(coarse_point_cloud, rebuild_points, brep_grids, gt, gt_brep_grid)
+            sparse_loss, brep_loss = base_model.get_loss(coarse_point_cloud, rebuild_points, brep_grids, gt, gt_brep_grid)
          
-            _loss = sparse_loss + dense_loss + brep_loss 
+            _loss = sparse_loss + brep_loss 
             _loss.backward()
 
-            torch.nn.utils.clip_grad_norm_(base_model.parameters(), getattr(config, 'grad_norm_clip', 10), norm_type=2)
+            torch.nn.utils.clip_grad_norm_(base_model.parameters(), 10, norm_type=2)
             optimizer.step()
             base_model.zero_grad()
+            
+            # Accumulate losses for logging
+            total_train_sparse_loss += sparse_loss.item()
+            total_train_brep_loss += brep_loss.item()
+            total_train_loss += _loss.item()
+            num_train_batches += 1
+            
+            # Update progress bar with current loss
+            train_pbar.set_postfix({
+                'Loss': f'{_loss.item():.6f}',
+                'Sparse': f'{sparse_loss.item():.6f}',
+                'Brep': f'{brep_loss.item():.6f}'
+            })
 
-
+        # Calculate average training losses
+        avg_train_sparse_loss = total_train_sparse_loss / num_train_batches
+        avg_train_brep_loss = total_train_brep_loss / num_train_batches
+        avg_train_loss = total_train_loss / num_train_batches
+        
+        # Validation phase
+        val_sparse_loss, val_brep_loss, val_total_loss = validate(base_model, val_dataloader, device)
+        
+        # Update schedulers
         if isinstance(scheduler, list):
             for item in scheduler:
                 item.step()
         else:
             scheduler.step()
-
-
-        if epoch % args.val_freq == 0:
-            metrics = validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val_writer, args, config, logger=logger)
-
-
-
-def validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val_writer, args, config, logger = None):
-    base_model.eval()  # set model to eval mode
-
-    test_losses = AverageMeter(['SparseLossL1', 'SparseLossL2', 'DenseLossL1', 'DenseLossL2'])
-    test_metrics = AverageMeter(Metrics.names())
-    category_metrics = dict()
-    n_samples = len(test_dataloader) # bs is 1
-
-    interval =  n_samples // 10
-
-    with torch.no_grad():
-        for idx, (taxonomy_ids, model_ids, data) in enumerate(test_dataloader):
-            taxonomy_id = taxonomy_ids[0] if isinstance(taxonomy_ids[0], str) else taxonomy_ids[0].item()
-            model_id = model_ids[0]
-
-            npoints = config.dataset.val._base_.N_POINTS
-            dataset_name = config.dataset.val._base_.NAME
-            if dataset_name == 'PCN' or dataset_name == 'Completion3D' or dataset_name == 'Projected_ShapeNet':
-                partial = data[0].cuda()
-                gt = data[1].cuda()
-            elif dataset_name == 'ShapeNet':
-                gt = data.cuda()
-                partial, _ = misc.seprate_point_cloud(gt, npoints, [int(npoints * 1/4) , int(npoints * 3/4)], fixed_points = None)
-                partial = partial.cuda()
-            else:
-                raise NotImplementedError(f'Train phase do not support {dataset_name}')
-
-            ret = base_model(partial)
-            coarse_points = ret[0]
-            dense_points = ret[-1]
-
-            sparse_loss_l1 =  ChamferDisL1(coarse_points, gt)
-            sparse_loss_l2 =  ChamferDisL2(coarse_points, gt)
-            dense_loss_l1 =  ChamferDisL1(dense_points, gt)
-            dense_loss_l2 =  ChamferDisL2(dense_points, gt)
-
-            if args.distributed:
-                sparse_loss_l1 = dist_utils.reduce_tensor(sparse_loss_l1, args)
-                sparse_loss_l2 = dist_utils.reduce_tensor(sparse_loss_l2, args)
-                dense_loss_l1 = dist_utils.reduce_tensor(dense_loss_l1, args)
-                dense_loss_l2 = dist_utils.reduce_tensor(dense_loss_l2, args)
-
-            test_losses.update([sparse_loss_l1.item() * 1000, sparse_loss_l2.item() * 1000, dense_loss_l1.item() * 1000, dense_loss_l2.item() * 1000])
-
-
-            # dense_points_all = dist_utils.gather_tensor(dense_points, args)
-            # gt_all = dist_utils.gather_tensor(gt, args)
-
-            # _metrics = Metrics.get(dense_points_all, gt_all)
-            _metrics = Metrics.get(dense_points, gt)
-            if args.distributed:
-                _metrics = [dist_utils.reduce_tensor(_metric, args).item() for _metric in _metrics]
-            else:
-                _metrics = [_metric.item() for _metric in _metrics]
-
-            for _taxonomy_id in taxonomy_ids:
-                if _taxonomy_id not in category_metrics:
-                    category_metrics[_taxonomy_id] = AverageMeter(Metrics.names())
-                category_metrics[_taxonomy_id].update(_metrics)
-
-
-            # if val_writer is not None and idx % 200 == 0:
-            #     input_pc = partial.squeeze().detach().cpu().numpy()
-            #     input_pc = misc.get_ptcloud_img(input_pc)
-            #     val_writer.add_image('Model%02d/Input'% idx , input_pc, epoch, dataformats='HWC')
-
-            #     sparse = coarse_points.squeeze().cpu().numpy()
-            #     sparse_img = misc.get_ptcloud_img(sparse)
-            #     val_writer.add_image('Model%02d/Sparse' % idx, sparse_img, epoch, dataformats='HWC')
-
-            #     dense = dense_points.squeeze().cpu().numpy()
-            #     dense_img = misc.get_ptcloud_img(dense)
-            #     val_writer.add_image('Model%02d/Dense' % idx, dense_img, epoch, dataformats='HWC')
-                
-            #     gt_ptcloud = gt.squeeze().cpu().numpy()
-            #     gt_ptcloud_img = misc.get_ptcloud_img(gt_ptcloud)
-            #     val_writer.add_image('Model%02d/DenseGT' % idx, gt_ptcloud_img, epoch, dataformats='HWC')
         
-            if (idx+1) % interval == 0:
-                print_log('Test[%d/%d] Taxonomy = %s Sample = %s Losses = %s Metrics = %s' %
-                            (idx + 1, n_samples, taxonomy_id, model_id, ['%.4f' % l for l in test_losses.val()], 
-                            ['%.4f' % m for m in _metrics]), logger=logger)
-        for _,v in category_metrics.items():
-            test_metrics.update(v.avg())
-        print_log('[Validation] EPOCH: %d  Metrics = %s' % (epoch, ['%.4f' % m for m in test_metrics.avg()]), logger=logger)
+        # Get current learning rate
+        current_lr = optimizer.param_groups[0]['lr']
+        
+        # Log to tensorboard
+        writer.add_scalar('Loss/Train_Total', avg_train_loss, epoch)
+        writer.add_scalar('Loss/Train_Sparse', avg_train_sparse_loss, epoch)
+        writer.add_scalar('Loss/Train_Brep', avg_train_brep_loss, epoch)
+        writer.add_scalar('Loss/Val_Total', val_total_loss, epoch)
+        writer.add_scalar('Loss/Val_Sparse', val_sparse_loss, epoch)
+        writer.add_scalar('Loss/Val_Brep', val_brep_loss, epoch)
+        writer.add_scalar('Learning_Rate', current_lr, epoch)
+        
+        # Log epoch summary
+        epoch_time = time.time() - epoch_start_time
+        print(f'Epoch [{epoch+1}/600] ({epoch_time:.2f}s) '
+              f'Train Loss: {avg_train_loss:.6f} '
+              f'Val Loss: {val_total_loss:.6f} '
+              f'LR: {current_lr:.2e}')
+        
+        # Save best model
+        if val_total_loss < best_val_loss:
+            best_val_loss = val_total_loss
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': base_model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'val_loss': val_total_loss,
+                'train_loss': avg_train_loss,
+            }, os.path.join(log_dir, 'best_model.pth'))
+            print(f'New best model saved! Val Loss: {val_total_loss:.6f}')
+        
+        # Save checkpoint every 50 epochs
+        if (epoch + 1) % 50 == 0:
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': base_model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'val_loss': val_total_loss,
+                'train_loss': avg_train_loss,
+            }, os.path.join(log_dir, f'checkpoint_epoch_{epoch+1}.pth'))
+    
+    writer.close()
+    print(f"Training completed! Logs saved to: {log_dir}")
 
-        if args.distributed:
-            torch.cuda.synchronize()
-     
-    # Print testing results
-    shapenet_dict = json.load(open('./data/shapenet_synset_dict.json', 'r'))
-    print_log('============================ TEST RESULTS ============================',logger=logger)
-    msg = ''
-    msg += 'Taxonomy\t'
-    msg += '#Sample\t'
-    for metric in test_metrics.items:
-        msg += metric + '\t'
-    msg += '#ModelName\t'
-    print_log(msg, logger=logger)
 
-    for taxonomy_id in category_metrics:
-        msg = ''
-        msg += (taxonomy_id + '\t')
-        msg += (str(category_metrics[taxonomy_id].count(0)) + '\t')
-        for value in category_metrics[taxonomy_id].avg():
-            msg += '%.3f \t' % value
-        msg += shapenet_dict[taxonomy_id] + '\t'
-        print_log(msg, logger=logger)
-
-    msg = ''
-    msg += 'Overall\t\t'
-    for value in test_metrics.avg():
-        msg += '%.3f \t' % value
-    print_log(msg, logger=logger)
-
-    # Add testing results to TensorBoard
-    if val_writer is not None:
-        val_writer.add_scalar('Loss/Epoch/Sparse', test_losses.avg(0), epoch)
-        val_writer.add_scalar('Loss/Epoch/Dense', test_losses.avg(2), epoch)
-        for i, metric in enumerate(test_metrics.items):
-            val_writer.add_scalar('Metric/%s' % metric, test_metrics.avg(i), epoch)
-
-    return Metrics(config.consider_metric, test_metrics.avg())
-
+if __name__ == "__main__":
+    run_net()
 
 # crop_ratio = {
 #     'easy': 1/4,
