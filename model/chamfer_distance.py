@@ -32,27 +32,37 @@ class ChamferDistanceL1(nn.Module):
         
         batch_size = pred.size(0)
         
-        # Compute pairwise distances between all points
-        # pred: (B, N, 3), target: (B, M, 3)
-        # dist: (B, N, M)
-        dist = torch.cdist(pred, target, p=1)  # L1 norm
+        # Process large batches in chunks to avoid CUDA kernel limits
+        chunk_size = 8  # Process 8 samples at a time
+        total_loss = 0.0
         
-        # Forward direction: min distance from pred to target
-        forward_dist = torch.min(dist, dim=2)[0]  # (B, N)
-        
-        # Backward direction: min distance from target to pred
-        backward_dist = torch.min(dist, dim=1)[0]  # (B, M)
-        
-        # Sum both directions
-        forward_loss = torch.sum(forward_dist, dim=1)  # (B,)
-        backward_loss = torch.sum(backward_dist, dim=1)  # (B,)
-        
-        total_loss = forward_loss + backward_loss
+        for i in range(0, batch_size, chunk_size):
+            end_idx = min(i + chunk_size, batch_size)
+            pred_chunk = pred[i:end_idx]
+            target_chunk = target[i:end_idx]
+            
+            # Compute pairwise distances between all points
+            # pred_chunk: (chunk_size, N, 3), target_chunk: (chunk_size, M, 3)
+            # dist: (chunk_size, N, M)
+            dist = torch.cdist(pred_chunk, target_chunk, p=1)  # L1 norm
+            
+            # Forward direction: min distance from pred to target
+            forward_dist = torch.min(dist, dim=2)[0]  # (chunk_size, N)
+            
+            # Backward direction: min distance from target to pred
+            backward_dist = torch.min(dist, dim=1)[0]  # (chunk_size, M)
+            
+            # Sum both directions
+            forward_loss = torch.sum(forward_dist, dim=1)  # (chunk_size,)
+            backward_loss = torch.sum(backward_dist, dim=1)  # (chunk_size,)
+            
+            chunk_loss = forward_loss + backward_loss
+            total_loss += torch.sum(chunk_loss)
         
         if self.reduction == 'mean':
-            return torch.mean(total_loss)
+            return total_loss / batch_size
         elif self.reduction == 'sum':
-            return torch.sum(total_loss)
+            return total_loss
         else:
             return total_loss
 
@@ -86,27 +96,37 @@ class ChamferDistanceL2(nn.Module):
         
         batch_size = pred.size(0)
         
-        # Compute pairwise distances between all points
-        # pred: (B, N, 3), target: (B, M, 3)
-        # dist: (B, N, M)
-        dist = torch.cdist(pred, target, p=2)  # L2 norm
+        # Process large batches in chunks to avoid CUDA kernel limits
+        chunk_size = 8  # Process 8 samples at a time
+        total_loss = 0.0
         
-        # Forward direction: min distance from pred to target
-        forward_dist = torch.min(dist, dim=2)[0]  # (B, N)
-        
-        # Backward direction: min distance from target to pred
-        backward_dist = torch.min(dist, dim=1)[0]  # (B, M)
-        
-        # Sum both directions
-        forward_loss = torch.sum(forward_dist, dim=1)  # (B,)
-        backward_loss = torch.sum(backward_dist, dim=1)  # (B,)
-        
-        total_loss = forward_loss + backward_loss
+        for i in range(0, batch_size, chunk_size):
+            end_idx = min(i + chunk_size, batch_size)
+            pred_chunk = pred[i:end_idx]
+            target_chunk = target[i:end_idx]
+            
+            # Compute pairwise distances between all points
+            # pred_chunk: (chunk_size, N, 3), target_chunk: (chunk_size, M, 3)
+            # dist: (chunk_size, N, M)
+            dist = torch.cdist(pred_chunk, target_chunk, p=2)  # L2 norm
+            
+            # Forward direction: min distance from pred to target
+            forward_dist = torch.min(dist, dim=2)[0]  # (chunk_size, N)
+            
+            # Backward direction: min distance from target to pred
+            backward_dist = torch.min(dist, dim=1)[0]  # (chunk_size, M)
+            
+            # Sum both directions
+            forward_loss = torch.sum(forward_dist, dim=1)  # (chunk_size,)
+            backward_loss = torch.sum(backward_dist, dim=1)  # (chunk_size,)
+            
+            chunk_loss = forward_loss + backward_loss
+            total_loss += torch.sum(chunk_loss)
         
         if self.reduction == 'mean':
-            return torch.mean(total_loss)
+            return total_loss / batch_size
         elif self.reduction == 'sum':
-            return torch.sum(total_loss)
+            return total_loss
         else:
             return total_loss
 

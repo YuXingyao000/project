@@ -1,4 +1,8 @@
 import torch
+import os
+# Set environment variable to help with memory fragmentation
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
 from model import PoinTr
 from utils import misc
 import time
@@ -9,10 +13,11 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 from datetime import datetime
 from tqdm import tqdm
+import gc
 
 def validate(model, val_dataloader, device):
     """
-    Validation function
+    Validation function with memory management
     """
     model.eval()
     total_sparse_loss = 0.0
@@ -22,28 +27,36 @@ def validate(model, val_dataloader, device):
     
     with torch.no_grad():
         for gt_brep_grid, gt_point_cloud, partial_point_cloud, cropped_point_cloud in tqdm(val_dataloader, desc="Validating", leave=False):
+            # Clear cache before processing each batch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
             gt = gt_point_cloud.to(device)
             gt_brep_grid = gt_brep_grid.to(device)
             partial = partial_point_cloud.to(device)
             cropped = cropped_point_cloud.to(device)
 
-            coarse_point_cloud, rebuild_points, brep_grids = model(partial)
+            coarse_point_cloud, rebuild_points = model(partial)
             
-            sparse_loss, brep_loss = model.get_loss(coarse_point_cloud, rebuild_points, brep_grids, gt, gt_brep_grid)
+            sparse_loss, brep_loss = model.get_loss(coarse_point_cloud, rebuild_points, gt)
             
             total_loss_val = sparse_loss + brep_loss
             
             total_sparse_loss += sparse_loss.item()
-            total_brep_loss += brep_loss.item()
+            # total_brep_loss += brep_loss.item()
             total_loss += total_loss_val.item()
             num_batches += 1
+            
+            # Clear variables to free memory
+            del gt, gt_brep_grid, partial, cropped, coarse_point_cloud, rebuild_points
+            del sparse_loss, total_loss_val
     
     # Calculate average losses
     avg_sparse_loss = total_sparse_loss / num_batches
-    avg_brep_loss = total_brep_loss / num_batches
+    # avg_brep_loss = total_brep_loss / num_batches
     avg_total_loss = total_loss / num_batches
     
-    return avg_sparse_loss, avg_brep_loss, avg_total_loss
+    return avg_sparse_loss, avg_total_loss
 
 def run_net():
     # Create tensorboard writer
@@ -55,19 +68,32 @@ def run_net():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
+    # Check available GPU memory
+    if torch.cuda.is_available():
+        gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        print(f"Total GPU memory: {gpu_memory:.2f} GB")
+        free_memory = torch.cuda.memory_allocated(0) / 1024**3
+        print(f"Currently allocated: {free_memory:.2f} GB")
+    
     base_model = PoinTr()
     base_model.to(device)
 
-    train_dataset = ABCDataset(root='/mnt/d/data/processed_data_step', mode='train')
-    train_dataloader = DataLoader(train_dataset, batch_size=64, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
-    val_dataset = ABCDataset(root='/mnt/d/data/processed_data_step', mode='val')
-    val_dataloader = DataLoader(val_dataset, batch_size=64, shuffle=False, num_workers=4, pin_memory=True, drop_last=True)
+    # Reduce batch sizes to prevent OOM
+    train_batch_size = 32  # Reduced from 64
+    val_batch_size = 16    # Reduced from 64
+    
+    train_dataset = ABCDataset(root='/mnt/d/data/1000_16_brep_sample_rate_processed_data', mode='train')
+    train_dataloader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True, num_workers=2, pin_memory=True, drop_last=True)
+    val_dataset = ABCDataset(root='/mnt/d/data/1000_16_brep_sample_rate_processed_data', mode='val')
+    val_dataloader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False, num_workers=2, pin_memory=True, drop_last=True)
     
     print(f"Training samples: {len(train_dataset)}")
     print(f"Validation samples: {len(val_dataset)}")
+    print(f"Training batch size: {train_batch_size}")
+    print(f"Validation batch size: {val_batch_size}")
     
     # optimizer & scheduler
-    optimizer = torch.optim.AdamW(base_model.parameters(), lr=1e-4, weight_decay=5e-4)
+    optimizer = torch.optim.AdamW(base_model.parameters(), lr=1e-3, weight_decay=5e-4)
     
     lambda_lr = lambda e: max(0.9 ** ((e - 0) / 21), 0.02) if e >= 0 else max(e / 0, 0.001)
     scheduler = [torch.optim.lr_scheduler.LambdaLR(optimizer, lambda_lr, last_epoch=-1), misc.BNMomentumScheduler(base_model, lambda_lr)]
@@ -80,34 +106,42 @@ def run_net():
         base_model.train()
         epoch_start_time = time.time()
         
+        # Clear GPU cache at the start of each epoch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
         # Training phase
         total_train_sparse_loss = 0.0
-        total_train_brep_loss = 0.0
+        # total_train_brep_loss = 0.0
         total_train_loss = 0.0
         num_train_batches = 0
         
         # Training loop with progress bar
         train_pbar = tqdm(train_dataloader, desc=f"Epoch {epoch+1}/600", leave=False)
         for idx, (gt_brep_grid, gt_point_cloud, partial_point_cloud, cropped_point_cloud) in enumerate(train_pbar):
+            # Clear cache periodically during training
+            if idx % 10 == 0 and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
             gt = gt_point_cloud.to(device)
             gt_brep_grid = gt_brep_grid.to(device)
             partial = partial_point_cloud.to(device)
             cropped = cropped_point_cloud.to(device)
 
-            coarse_point_cloud, rebuild_points, brep_grids = base_model(partial)
+            coarse_point_cloud, rebuild_points = base_model(partial)
             
-            sparse_loss, brep_loss = base_model.get_loss(coarse_point_cloud, rebuild_points, brep_grids, gt, gt_brep_grid)
+            sparse_loss, fine_loss = base_model.get_loss(coarse_point_cloud, rebuild_points, gt)
          
-            _loss = sparse_loss + brep_loss 
+            _loss = sparse_loss + fine_loss 
             _loss.backward()
 
-            torch.nn.utils.clip_grad_norm_(base_model.parameters(), 10, norm_type=2)
+            # torch.nn.utils.clip_grad_norm_(base_model.parameters(), 10, norm_type=2)
             optimizer.step()
             base_model.zero_grad()
             
             # Accumulate losses for logging
             total_train_sparse_loss += sparse_loss.item()
-            total_train_brep_loss += brep_loss.item()
+            # total_train_brep_loss += brep_loss.item()
             total_train_loss += _loss.item()
             num_train_batches += 1
             
@@ -115,16 +149,25 @@ def run_net():
             train_pbar.set_postfix({
                 'Loss': f'{_loss.item():.6f}',
                 'Sparse': f'{sparse_loss.item():.6f}',
-                'Brep': f'{brep_loss.item():.6f}'
+                # 'Brep': f'{brep_loss.item():.6f}'
             })
+            
+            # Clear variables to free memory
+            del gt, gt_brep_grid, partial, cropped, coarse_point_cloud, rebuild_points
+            del sparse_loss, _loss
 
         # Calculate average training losses
         avg_train_sparse_loss = total_train_sparse_loss / num_train_batches
-        avg_train_brep_loss = total_train_brep_loss / num_train_batches
+        # avg_train_brep_loss = total_train_brep_loss / num_train_batches
         avg_train_loss = total_train_loss / num_train_batches
         
+        # Clear cache before validation
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            gc.collect()
+        
         # Validation phase
-        val_sparse_loss, val_brep_loss, val_total_loss = validate(base_model, val_dataloader, device)
+        val_sparse_loss, val_total_loss = validate(base_model, val_dataloader, device)
         
         # Update schedulers
         if isinstance(scheduler, list):
@@ -139,10 +182,10 @@ def run_net():
         # Log to tensorboard
         writer.add_scalar('Loss/Train_Total', avg_train_loss, epoch)
         writer.add_scalar('Loss/Train_Sparse', avg_train_sparse_loss, epoch)
-        writer.add_scalar('Loss/Train_Brep', avg_train_brep_loss, epoch)
+        # writer.add_scalar('Loss/Train_Brep', avg_train_brep_loss, epoch)
         writer.add_scalar('Loss/Val_Total', val_total_loss, epoch)
         writer.add_scalar('Loss/Val_Sparse', val_sparse_loss, epoch)
-        writer.add_scalar('Loss/Val_Brep', val_brep_loss, epoch)
+        # writer.add_scalar('Loss/Val_Brep', val_brep_loss, epoch)
         writer.add_scalar('Learning_Rate', current_lr, epoch)
         
         # Log epoch summary

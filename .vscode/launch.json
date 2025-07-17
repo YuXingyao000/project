@@ -11,13 +11,13 @@
             "module": "tools.process_abc",
             "args": [
                 "--data_root",
-                "data",
+                "/mnt/d/data/data_step",
                 "--output_root",
-                "processed_data",
+                "/mnt/d/data/1000_processed_data",
                 "--batch_size",
                 "32",
                 "--brep_sample_resolution",
-                "32",
+                "16",
                 "--point_cloud_sample_num",
                 "8192"
             ]
@@ -51,6 +51,14 @@
             "type": "debugpy",
             "request": "launch",
             "module": "runner",
+            "args": [
+            ]
+        },
+        {
+            "name": "test",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "test_model_final",
             "args": [
             ]
         }

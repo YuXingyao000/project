@@ -62,8 +62,8 @@ class PoinTr(nn.Module):
         super().__init__()
         self.trans_dim = 384
         self.knn_layer = 1
-        self.num_pred = 8192
-        self.num_query = 32
+        self.num_pred = 14336 // 4
+        self.num_query = 224
         self.global_feature_dim = 1024
 
         self.fold_step = int(pow(self.num_pred//self.num_query, 0.5) + 0.5)
@@ -79,13 +79,13 @@ class PoinTr(nn.Module):
         )
         self.reduce_map = nn.Linear(self.trans_dim + self.global_feature_dim + 3, self.trans_dim)
 
-        self.brep_grid_test = nn.Sequential(
-            nn.Conv1d(self.num_query, 30, 1),
-            nn.LayerNorm(self.trans_dim + self.global_feature_dim + 3),
-            nn.LeakyReLU(negative_slope=0.2),
-            nn.Linear(self.trans_dim + self.global_feature_dim + 3, 32 * 32 * 3),
-            nn.ReLU(inplace=True)
-        )
+        # self.brep_grid_test = nn.Sequential(
+        #     nn.Conv1d(self.num_query, 30, 1),
+        #     nn.LayerNorm(self.trans_dim + self.global_feature_dim + 3),
+        #     nn.LeakyReLU(negative_slope=0.2),
+        #     nn.Linear(self.trans_dim + self.global_feature_dim + 3, 16 * 16 * 3),
+        #     nn.ReLU(inplace=True)
+        # )
         
         self.build_loss_func()
 
@@ -93,11 +93,11 @@ class PoinTr(nn.Module):
         from model.chamfer_distance import ChamferDistanceL1
         self.loss_func = ChamferDistanceL1()
 
-    def get_loss(self, coarse_point_cloud, rebuild_points, pred_brep_grid, gt_point_cloud, gt_brep_grid):
+    def get_loss(self, coarse_point_cloud, rebuild_points, gt_point_cloud):
         loss_coarse = self.loss_func(coarse_point_cloud, gt_point_cloud)
-        # loss_fine = self.loss_func(rebuild_points, gt_point_cloud)
-        loss_brep = self.loss_func(pred_brep_grid, gt_brep_grid)
-        return loss_coarse,  loss_brep
+        loss_fine = self.loss_func(rebuild_points, gt_point_cloud)
+        # loss_brep = self.loss_func(pred_brep_grid, gt_brep_grid)
+        return loss_coarse, loss_fine
 
     def forward(self, xyz):
         rebuild_points = self.base_model(xyz)  # bs, [3 + 384], num_query
@@ -113,8 +113,8 @@ class PoinTr(nn.Module):
             incomplete_pc_features,
             coordinates], dim=-2).transpose(1,2).contiguous()  # bs num_query 1027 + 384
 
-        brep_grid_test = self.brep_grid_test(rebuild_feature)
-        brep_grid_test = brep_grid_test.reshape(batch_size, 30, 32, 32, 3)
+        # brep_grid_test = self.brep_grid_test(rebuild_feature)
+        # brep_grid_test = brep_grid_test.reshape(batch_size, 30, 16, 16, 3)
         rebuild_feature = self.reduce_map(rebuild_feature.reshape(batch_size * self.num_query, -1)) # bs num_query 1027 + 384
         
         # # NOTE: try to rebuild pc
@@ -129,5 +129,5 @@ class PoinTr(nn.Module):
         coarse_point_cloud = torch.cat([coordinates.transpose(1,2), inp_sparse], dim=1).contiguous()
         rebuild_points = torch.cat([rebuild_points, xyz],dim=1).contiguous()
 
-        return coarse_point_cloud, rebuild_points, brep_grid_test
+        return coarse_point_cloud, rebuild_points
 

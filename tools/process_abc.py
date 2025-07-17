@@ -12,6 +12,7 @@ MAX_SURFACE_NUM = 30
 MIN_SURFACE_NUM = 7
 
 def process_step_folder(data_root, output_root, step_ids, brep_sample_resolution, point_cloud_sample_num):
+    count = 0
     for step_id in step_ids:
         try:
             if not os.path.exists(output_root / step_id):
@@ -31,6 +32,12 @@ def process_step_folder(data_root, output_root, step_ids, brep_sample_resolution
             shape_wrapper.export_mesh(output_root / step_id / f"{step_id}.stl")
             shape_wrapper.export_point_cloud(output_root / step_id / f"{step_id}.ply", sample_num=point_cloud_sample_num)
             shape_wrapper.export_face_sample_points(output_root / step_id / f"{step_id}.npz", sample_resolution=brep_sample_resolution)
+            shape_wrapper.export_point_cloud_numpy(output_root / step_id / f"{step_id}_pc.npz")
+            shape_wrapper.export_random_cropped_pc(output_root / step_id / f"{step_id}_cropped_pc.h5")
+            count += 1
+            print(f"Processed {count} steps")
+            if count > 1000:
+                break
         except Exception as e:
             with open(output_root / "error.txt", "a") as f:
                 tb_list = traceback.extract_tb(sys.exc_info()[2])
@@ -68,6 +75,7 @@ if __name__ == '__main__':
         
         process_step_folder_remote = ray.remote(process_step_folder)
         tasks = []
+        
         for i in range(0, len(step_ids), batch_size):
             batch_ids = step_ids[i:min(len(step_ids), i + batch_size)]
             tasks.append(process_step_folder_remote.remote(data_root, output_root, batch_ids, args.brep_sample_resolution, args.point_cloud_sample_num))
