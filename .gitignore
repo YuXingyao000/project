@@ -211,3 +211,6 @@ processed_data_partial/
 
 # Python cache files
 tools/__pycache__/
+runs/
+visualization/
+visualize/
