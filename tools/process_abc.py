@@ -6,7 +6,7 @@ import traceback
 import shutil
 import sys
 
-from tools.data import SolidWrapper, ABCReader
+from tools.data import SolidProcessor, ABCReader
 
 MAX_SURFACE_NUM = 30
 MIN_SURFACE_NUM = 7
@@ -24,16 +24,16 @@ def process_step_folder(data_root, output_root, step_ids, brep_sample_resolution
                 raise ValueError(f"Step {step_id} has {len(solids)} solids, skipping")
             if len(solids) == 0:
                 raise ValueError(f"Step {step_id} has no solids, skipping")
-            shape_wrapper = SolidWrapper(solids[0])
-            if len(shape_wrapper.get_surfaces()) > MAX_SURFACE_NUM or len(shape_wrapper.get_surfaces()) < MIN_SURFACE_NUM:
-                raise ValueError(f"Step {step_id} has {len(shape_wrapper.get_surfaces())} surfaces, skipping")
-            shape_wrapper.normalize_shape()
-            shape_wrapper.export_solid(output_root / step_id / f"{step_id}.step")
-            shape_wrapper.export_mesh(output_root / step_id / f"{step_id}.stl")
-            shape_wrapper.export_point_cloud(output_root / step_id / f"{step_id}.ply", sample_num=point_cloud_sample_num)
-            shape_wrapper.export_face_sample_points(output_root / step_id / f"{step_id}.npz", sample_resolution=brep_sample_resolution)
-            shape_wrapper.export_point_cloud_numpy(output_root / step_id / f"{step_id}_pc.npz")
-            shape_wrapper.export_random_cropped_pc(output_root / step_id / f"{step_id}_cropped_pc.h5")
+            solid_processor = SolidProcessor(solids[0])
+            if len(solid_processor.get_surfaces()) > MAX_SURFACE_NUM or len(solid_processor.get_surfaces()) < MIN_SURFACE_NUM:
+                raise ValueError(f"Step {step_id} has {len(solid_processor.get_surfaces())} surfaces, skipping")
+            solid_processor.normalize_shape()
+            solid_processor.export_solid(output_root / step_id / f"{step_id}.step")
+            solid_processor.export_mesh(output_root / step_id / f"{step_id}.stl")
+            solid_processor.export_point_cloud(output_root / step_id / f"{step_id}.ply", sample_num=point_cloud_sample_num)
+            solid_processor.export_uv_grids(output_root / step_id / f"{step_id}.npz", sample_resolution=brep_sample_resolution)
+            solid_processor.export_point_cloud_numpy(output_root / step_id / f"{step_id}_pc.npz")
+            solid_processor.export_random_cropped_pc(output_root / step_id / f"{step_id}_cropped_pc.h5")
             count += 1
             print(f"Processed {count} steps")
             if count > 1000:

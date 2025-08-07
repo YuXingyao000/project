@@ -7,8 +7,6 @@ from OCC.Core.TopAbs import TopAbs_SOLID, TopAbs_COMPOUND
 from OCC.Core.TopoDS import topods
 from OCC.Core.TopExp import TopExp_Explorer
 
-from tools.data.SolidWrapper import SolidWrapper
-
 def debug_vis(shape):
     try:
         from OCC.Display.SimpleGui import init_display
