@@ -3,6 +3,9 @@ import numpy as np
 import os
 import random
 
+from tools.data.RandomCropper import RandomCropper
+from tools.data.VirtualScanner import VirtualScanner
+
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX, TopAbs_REVERSED
 from OCC.Core.TopoDS import topods
@@ -28,7 +31,7 @@ def extract_primitives(shape, TopoAbs):
         explorer.Next()
     return primitives
 
-class SolidWrapper:
+class SolidProcessor:
     def __init__(self, solid) -> None:
         self.solid = solid
         self.surfaces = None
@@ -119,12 +122,18 @@ class SolidWrapper:
             for i in range(1, triangulation.NbTriangles() + 1):
                 t = triangulation.Triangle(i)
                 if surface.Orientation() == TopAbs_REVERSED:
-                    f.append([t.Value(3) + cur_vertex_size - 1, t.Value(2) + cur_vertex_size - 1,
+                    f.append([t.Value(3) + cur_vertex_size - 1, 
+                              t.Value(2) + cur_vertex_size - 1,
                               t.Value(1) + cur_vertex_size - 1])
                 else:
-                    f.append([t.Value(1) + cur_vertex_size - 1, t.Value(2) + cur_vertex_size - 1,
+                    f.append([t.Value(1) + cur_vertex_size - 1, 
+                              t.Value(2) + cur_vertex_size - 1,
                               t.Value(3) + cur_vertex_size - 1])
         return v, f
+    
+    #########################
+    # Data export functions #
+    #########################
     
     def export_solid(self, solid_path):
         self._create_dir_if_not_exist(os.path.dirname(solid_path))
@@ -170,10 +179,41 @@ class SolidWrapper:
         self.point_cloud = points
         o3d.io.write_point_cloud(point_cloud_path, points)
     
-    def export_point_cloud_numpy(self, point_cloud_path, sample_num=8196, sample_method="uniform"):
+    def export_point_cloud_numpy(self, point_cloud_path):
         self._create_dir_if_not_exist(os.path.dirname(point_cloud_path))
         points = np.asarray(self.point_cloud.points, dtype=np.float32)
         np.savez_compressed(point_cloud_path, points=points)
+
+    def export_scanned_point_cloud(self, scanned_pc_path, strategy='sphere', n_viewpoints=64, radius=1.0, n_rays=2048):
+        """
+        Mimic a real-world scanner by generating point clouds from multiple viewpoints.
+        
+        Args:
+            scanned_pc_path: Output path for npz file
+            n_viewpoints: Number of viewpoints to use (default: 8)
+            strategy: Viewpoint selection strategy ('sphere' or 'cube')
+            radius: Radius of the sphere or half-edge length of cube (default: 1.0)
+        """
+        self._create_dir_if_not_exist(os.path.dirname(scanned_pc_path))
+        
+        virtual_scanner = VirtualScanner(self.mesh, strategy, n_viewpoints, radius, n_rays)
+        # Ensure we have a mesh
+        if self.mesh is None:
+            vertices, faces = self.get_triangulations()
+            self.mesh = o3d.geometry.TriangleMesh()
+            self.mesh.vertices = o3d.utility.Vector3dVector(vertices)
+            self.mesh.triangles = o3d.utility.Vector3iVector(faces)
+            self.mesh.compute_vertex_normals()
+        
+        viewpoints, all_points, all_normals = virtual_scanner.process()
+        
+        assert len(all_points) == len(all_normals) == len(viewpoints)
+        
+        import h5py
+        with h5py.File(scanned_pc_path, 'w') as f:
+            f.create_dataset('points', data=all_points, compression='gzip', compression_opts=9)
+            f.create_dataset('normals', data=all_normals, compression='gzip', compression_opts=9)
+            f.create_dataset('viewpoints', data=viewpoints, compression='gzip', compression_opts=9)
 
     def export_random_cropped_pc(self, cropped_pc_path, size=64, n_points=2048, padding_mode='zero'):
         """
@@ -189,19 +229,8 @@ class SolidWrapper:
         
         self._create_dir_if_not_exist(os.path.dirname(cropped_pc_path))
         points = np.asarray(self.point_cloud.points, dtype=np.float32)
-        
-        # Generate all samples
-        input_samples = []
-        crop_samples = []
-        
-        for i in range(size):
-            input_data, crop_data = self._random_crop_pc(points, n_points, padding_mode)
-            input_samples.append(input_data)
-            crop_samples.append(crop_data)
-        
-        # Convert to numpy arrays
-        input_samples = np.stack(input_samples, axis=0)  # Shape: (size, n_points, 3)
-        crop_samples = np.stack(crop_samples, axis=0)    # Shape: (size, n_points, 3)
+        cropper = RandomCropper(size=size, n_points=n_points, padding_mode=padding_mode)
+        input_samples, crop_samples = cropper.process(points)
         
         # Save in HDF5 format
         with h5py.File(cropped_pc_path, 'w') as f:
@@ -211,34 +240,7 @@ class SolidWrapper:
             f.attrs['padding_mode'] = padding_mode
             f.attrs['num_samples'] = size
         
-        print(f"Saved {size} randomly cropped samples to {cropped_pc_path}")
-        print(f"Input data shape: {input_samples.shape}")
-        print(f"Crop data shape: {crop_samples.shape}")
-
-    def load_random_cropped_pc(self, cropped_pc_path, indices=None):
-        """
-        Load randomly cropped point clouds from HDF5 file.
-        
-        Args:
-            cropped_pc_path: Path to HDF5 file
-            indices: Specific indices to load (None for all)
-            
-        Returns:
-            tuple: (input_data, crop_data) as numpy arrays
-        """
-        import h5py
-        
-        with h5py.File(cropped_pc_path, 'r') as f:
-            if indices is None:
-                input_data = f['input_data'][:]
-                crop_data = f['crop_data'][:]
-            else:
-                input_data = f['input_data'][indices]
-                crop_data = f['crop_data'][indices]
-        
-        return input_data, crop_data
-    
-    def export_face_sample_points(self, face_sample_points_path, sample_resolution=16):
+    def export_uv_grids(self, uv_grid_path, sample_resolution=16):
         face_sample_points = []
         for face in self.get_surfaces():
             surface = BRepAdaptor_Surface(face)
@@ -261,102 +263,13 @@ class SolidWrapper:
                     points.append(np.array([pnt.X(), pnt.Y(), pnt.Z(), dir.X(), dir.Y(), dir.Z()], dtype=np.float32))
             face_sample_points.append(np.stack(points, axis=0).reshape(sample_resolution, sample_resolution, -1))
         face_sample_points = np.stack(face_sample_points, axis=0)
-        np.savez_compressed(face_sample_points_path, 
+        np.savez_compressed(uv_grid_path, 
                             face_sample_points=face_sample_points)
+    
+    def export_photos(self, photo_path, strategy='cube', n_viewpoints=None, radius=1.0, n_rays=2048):
+        pass
     
     def _create_dir_if_not_exist(self, path):
         if not os.path.exists(path):
             os.makedirs(path)
-    
-    def _random_crop_pc(self, xyz: np.ndarray, n_points: int = 2048, padding_mode: str = 'zero', fixed_points: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Randomly crop a point cloud into input and crop data with downsampling.
-        
-        Args:
-            xyz: Input point cloud of shape (N, 3) where N=8192
-            n_points: Number of points to downsample to (default: 2048)
-            padding_mode: Padding mode when downsampling ('zero' or 'random')
-            fixed_points: Fixed center points to use (optional), shape (M, 3)
-            
-        Returns:
-            tuple: (input_data, crop_data) where both are numpy arrays
-        """
-        import random
-        
-        if xyz.shape[0] != 8192:
-            raise ValueError(f"Expected point cloud with 8192 points, got {xyz.shape[0]}")
-        
-        # Randomly sample crop ratio between 0.25 and 0.75
-        crop_ratio = random.uniform(0.25, 0.75)
-        
-        num_crop = int(8192 * crop_ratio)
-        num_input = 8192 - num_crop
-        
-        # Select center point for cropping
-        if fixed_points is None:
-            # Random direction from unit sphere (following dataset/transform.py approach)
-            center = np.random.randn(1, 3)
-            center = center / np.linalg.norm(center, axis=1, keepdims=True)  # Normalize to unit length
-        else:
-            # Use provided fixed points
-            if fixed_points.ndim == 1:
-                center = fixed_points.reshape(1, 3)
-            else:
-                # Randomly select one from multiple fixed points
-                center_idx = random.randint(0, fixed_points.shape[0] - 1)
-                center = fixed_points[center_idx:center_idx+1]  # Shape: (1, 3)
-        
-        # Calculate distances from center to all points
-        distances = np.linalg.norm(xyz - center, axis=1)  # Shape: (8192,)
-        
-        # Sort points by distance (closest first)
-        sorted_indices = np.argsort(distances)
-        
-        # Split into crop and input points
-        crop_indices = sorted_indices[:num_crop]
-        input_indices = sorted_indices[num_crop:]
-        
-        # Extract the point sets
-        crop_data = xyz[crop_indices]  # Shape: (num_crop, 3)
-        input_data = xyz[input_indices]  # Shape: (num_input, 3)
-        
-        # Downsample and pad the cropped point cloud
-        if crop_data.shape[0] > n_points:
-            # Randomly sample n_points from crop_data
-            choice = np.random.permutation(crop_data.shape[0])
-            crop_data = crop_data[choice[:n_points]]
-        elif crop_data.shape[0] < n_points:
-            # Pad with zeros or random points
-            if padding_mode == 'zero':
-                zeros = np.zeros((n_points - crop_data.shape[0], 3))
-                crop_data = np.concatenate([crop_data, zeros])
-            elif padding_mode == 'random':
-                # Generate random points within the bounds of the original point cloud
-                bounds_min = xyz.min(axis=0)
-                bounds_max = xyz.max(axis=0)
-                random_points = np.random.uniform(bounds_min, bounds_max, (n_points - crop_data.shape[0], 3))
-                crop_data = np.concatenate([crop_data, random_points])
-            else:
-                raise ValueError(f"Invalid padding_mode: {padding_mode}. Use 'zero' or 'random'")
-        
-        # Downsample and pad the input point cloud
-        if input_data.shape[0] > n_points:
-            # Randomly sample n_points from input_data
-            choice = np.random.permutation(input_data.shape[0])
-            input_data = input_data[choice[:n_points]]
-        elif input_data.shape[0] < n_points:
-            # Pad with zeros or random points
-            if padding_mode == 'zero':
-                zeros = np.zeros((n_points - input_data.shape[0], 3))
-                input_data = np.concatenate([input_data, zeros])
-            elif padding_mode == 'random':
-                # Generate random points within the bounds of the original point cloud
-                bounds_min = xyz.min(axis=0)
-                bounds_max = xyz.max(axis=0)
-                random_points = np.random.uniform(bounds_min, bounds_max, (n_points - input_data.shape[0], 3))
-                input_data = np.concatenate([input_data, random_points])
-            else:
-                raise ValueError(f"Invalid padding_mode: {padding_mode}. Use 'zero' or 'random'")
-        
-        return input_data, crop_data
     
