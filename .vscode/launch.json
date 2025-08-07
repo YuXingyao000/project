@@ -69,6 +69,14 @@
             "module": "inference.inference",
             "args": [
             ]
+        },
+        {
+            "name": "render images",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "tools.data.PhotoRenderer",
+            "args": [
+            ]
         }
     ]
 }

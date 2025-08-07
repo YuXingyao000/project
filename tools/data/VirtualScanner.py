@@ -4,19 +4,21 @@ import open3d as o3d
 from tools.data.ViewpointSampler import ViewpointSampler
 
 class VirtualScanner:
-    def __init__(self, mesh, strategy='cube', n_viewpoints=None, distance=1.0, n_rays=2048):
+    def __init__(self, mesh, strategy='cube', n_viewpoints=None, distance=1.0, n_rays=2048, fov_degrees=90):
         """
         - mesh(o3d.geometry.TriangleMesh): the mesh to scan
         - strategy('cube' or 'sphere'): the strategy to generate viewpoints
         - n_viewpoints(int): number of viewpoints for sphere strategy
         - distance(float): if strategy is 'cube', the edge length of the cube, otherwise, radius of the sphere
         - n_rays(int): number of rays for each viewpoint
+        - fov_degrees(float): field of view in degrees (default: 90)
         """
         self.mesh = mesh
         self.n_viewpoints = n_viewpoints
         self.strategy = strategy
         self.distance = distance
         self.n_rays = n_rays
+        self.fov_radians = np.radians(fov_degrees)
         self.viewpoints = ViewpointSampler(strategy, n_viewpoints, distance).sample_viewpoints()
         
     def process(self):
@@ -58,7 +60,7 @@ class VirtualScanner:
         normals = []
         
         # Generate ray directions in a cone towards the object
-        fov = np.pi / 2  # 90 degree field of view
+        fov = self.fov_radians  # Use configurable FOV
         
         for _ in range(n_rays):
             # Proper cone sampling using spherical coordinates
