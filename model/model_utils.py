@@ -8,7 +8,7 @@ def knn_index(k_nearest_neighbors, source_coord, target_coord):
         source_coord: all points, [B, C, M]
         target_coord: query points, [B, C, N]
     Return:
-        group_idx: grouped points index, [B, N, k_nearest_neighbors]
+        group_idx: grouped points index, [B, M, k_nearest_neighbors]
     """
     sqrdists = square_distance(source_coord, target_coord)
     _, group_idx = torch.topk(sqrdists, k_nearest_neighbors, dim = -1, largest=False, sorted=False)

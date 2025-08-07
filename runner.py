@@ -6,7 +6,7 @@ os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 from model import PoinTr
 from utils import misc
 import time
-from model.chamfer_distance import ChamferDistanceL1, ChamferDistanceL2
+from chamfer_distance import ChamferDistance as chamfer_dist
 from dataset.dataset import ABCDataset
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -79,8 +79,8 @@ def run_net():
     base_model.to(device)
 
     # Reduce batch sizes to prevent OOM
-    train_batch_size = 32  # Reduced from 64
-    val_batch_size = 16    # Reduced from 64
+    train_batch_size = 16  # Reduced from 64
+    val_batch_size = 8    # Reduced from 64
     
     train_dataset = ABCDataset(root='/mnt/d/data/1000_16_brep_sample_rate_processed_data', mode='train')
     train_dataloader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True, num_workers=2, pin_memory=True, drop_last=True)
@@ -132,10 +132,10 @@ def run_net():
             
             sparse_loss, fine_loss = base_model.get_loss(coarse_point_cloud, rebuild_points, gt)
          
-            _loss = sparse_loss + fine_loss 
+            _loss = sparse_loss + fine_loss
             _loss.backward()
 
-            # torch.nn.utils.clip_grad_norm_(base_model.parameters(), 10, norm_type=2)
+            torch.nn.utils.clip_grad_norm_(base_model.parameters(), 10, norm_type=2)
             optimizer.step()
             base_model.zero_grad()
             

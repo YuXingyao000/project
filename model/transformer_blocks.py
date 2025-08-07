@@ -53,7 +53,8 @@ class SelfAttentionBlock(nn.Module):
         features = points[:, 3:, :]  # [batch, feature_dim, num_points]
         
         # Normalize features
-        norm_features = self.input_norm(features.transpose(1, 2))  # [batch, num_points, feature_dim]
+        features = features.transpose(1, 2).contiguous()
+        norm_features = self.input_norm(features)  # [batch, num_points, feature_dim]
         
         # Self-attention
         qkv = self.qkv_proj(norm_features)  # [batch, num_points, 3*feature_dim]
@@ -61,12 +62,12 @@ class SelfAttentionBlock(nn.Module):
         attn_features = self.multi_head_attention(q, k, v)  # [batch, num_points, feature_dim]
         
         # Residual connection
-        output_features = features.transpose(1, 2) + attn_features  # [batch, num_points, feature_dim]
+        features = features + attn_features  # [batch, num_points, feature_dim]
         
         # Feed-forward network
-        output_features = self.feed_forward(self.feed_forward_norm(output_features)) + output_features
+        features = self.feed_forward(self.feed_forward_norm(features)) + features
         
-        return torch.cat([coords, output_features.transpose(1, 2)], dim=1)  # [batch, 3+feature_dim, num_points]
+        return coords, features.transpose(1, 2)
 
 
 class GeometryAwareSelfAttentionBlock(nn.Module):
@@ -118,7 +119,8 @@ class GeometryAwareSelfAttentionBlock(nn.Module):
         features = points[:, 3:, :]  # [batch, feature_dim, num_points]
         
         # Normalize features
-        norm_features = self.input_norm(features.transpose(1, 2))  # [batch, num_points, feature_dim]
+        features = features.transpose(1, 2).contiguous()
+        norm_features = self.input_norm(features)  # [batch, num_points, feature_dim]
         
         # Self-attention
         qkv = self.qkv_proj(norm_features)  # [batch, num_points, 3*feature_dim]
@@ -136,20 +138,16 @@ class GeometryAwareSelfAttentionBlock(nn.Module):
         geom_features = geom_features.max(dim=1, keepdim=False)[0]  # [batch, num_points, feature_dim]
         
         # Merge attention and geometry features
-        merged_features = torch.cat([attn_features, geom_features], dim=-1)  # [batch, num_points, 2*feature_dim]
-        merged_features = self.merge_proj(merged_features)  # [batch, num_points, feature_dim]
+        attn_features = torch.cat([attn_features, geom_features], dim=-1)  # [batch, num_points, 2*feature_dim]
+        attn_features = self.merge_proj(attn_features)  # [batch, num_points, feature_dim]
         
         # Residual connection
-        output_features = merged_features + attn_features  # [batch, num_points, feature_dim]
+        features = features + attn_features  # [batch, num_points, feature_dim]
         
         # Feed-forward network
-        output_features = self.feed_forward_norm(output_features)
-        output_features = self.feed_forward(output_features) + output_features
+        features = features + self.feed_forward(self.feed_forward_norm(features))
         
-        # Prepare output: concatenate coords and features
-        output = torch.cat([coords, output_features.transpose(1, 2)], dim=1)  # [batch, 3+feature_dim, num_points]
-        
-        return output
+        return coords, features.transpose(1, 2)
 
 
 class CrossAttentionBlock(nn.Module):
@@ -170,23 +168,25 @@ class CrossAttentionBlock(nn.Module):
             proj_drop (float): Projection dropout rate
         """
         super().__init__()
-        self.num_heads = num_heads
-        self.d_model = d_model
-        
-        self.query_norm = nn.LayerNorm(d_model)
-        self.key_norm = nn.LayerNorm(d_model)
-        
-        self.feed_forward = FeedForward(d_model, hidden_channels=d_model * 2)
-        self.feed_forward_norm = nn.LayerNorm(d_model)
-        
-        self.q_map = nn.Linear(d_model, d_model, bias=False)
-        self.k_map = nn.Linear(d_model, d_model, bias=False)
-        self.v_map = nn.Linear(d_model, d_model, bias=False)
-        
+        self.input_norm = nn.LayerNorm(d_model)
+        self.qkv_proj = nn.Linear(d_model, d_model * 3, bias=False)
         self.multi_head_attention = MultiHeadAttention(
             d_model=d_model, 
             num_heads=num_heads
         )
+        self.cross_multi_head_attention = MultiHeadAttention(
+            d_model=d_model, 
+            num_heads=num_heads
+        )
+        self.feed_forward = FeedForward(d_model, hidden_channels=d_model * 2)
+        self.feed_forward_norm = nn.LayerNorm(d_model)
+        
+        # Cross-attention components
+        self.cross_norm_q = nn.LayerNorm(d_model)
+        self.cross_norm_k = nn.LayerNorm(d_model)
+        self.cross_q_map = nn.Linear(d_model, d_model, bias=False)
+        self.cross_k_map = nn.Linear(d_model, d_model, bias=False)
+        self.cross_v_map = nn.Linear(d_model, d_model, bias=False)
         
     def forward(self, query_points, key_points):
         """
@@ -199,23 +199,34 @@ class CrossAttentionBlock(nn.Module):
         Returns:
             torch.Tensor: Updated query points with shape [batch, 3+feature_dim, num_query]
         """
-        query_coords = query_points[:, :3, :]
-        key_coords = key_points[:, :3, :]
-        query_features = query_points[:, 3:, :]
-        key_features = key_points[:, 3:, :]
+        query_coords = query_points[:, :3, :]  # [batch, 3, num_points]
+        key_coords = key_points[:, :3, :]  # [batch, 3, num_points]
+        query_features = query_points[:, 3:, :]  # [batch, feature_dim, num_points]
+        key_features = key_points[:, 3:, :]  # [batch, feature_dim, num_points]
         
-        query_features = self.query_norm(query_features.transpose(1,2))
-        key_features = self.key_norm(key_features.transpose(1,2))
+        # Normalize features
+        query_features = query_features.transpose(1, 2).contiguous()
+        norm_features = self.input_norm(query_features)  # [batch, num_points, feature_dim]
         
-        q = self.q_map(query_features)
-        k = self.k_map(key_features)
-        v = self.v_map(key_features)
-        attn_features = self.multi_head_attention(q, k, v)
-         
+        # Self-attention
+        qkv = self.qkv_proj(norm_features)  # [batch, num_points, 3*feature_dim]
+        q, k, v = qkv.chunk(3, dim=-1)  # Each: [batch, num_points, feature_dim]
+        attn_features = self.multi_head_attention(q, k, v)  # [batch, num_points, feature_dim]
+        
         query_features = query_features + attn_features
+        
+        # Cross-attention
+        normed_query_features = self.cross_norm_q(query_features)
+        normed_key_features = self.cross_norm_k(key_features.transpose(1,2))
+        cross_q = self.cross_q_map(normed_query_features)
+        cross_k = self.cross_k_map(normed_key_features)
+        cross_v = self.cross_v_map(normed_key_features)
+        cross_features = self.cross_multi_head_attention(cross_q, cross_k, cross_v)
+        
+        query_features = query_features + cross_features
         query_features = query_features + self.feed_forward(self.feed_forward_norm(query_features))
         
-        return torch.cat([query_coords, query_features.transpose(1,2)], dim=1)
+        return query_coords, query_features.transpose(1,2)
 
 
 class GeometryAwareCrossAttentionBlock(nn.Module):
@@ -238,6 +249,10 @@ class GeometryAwareCrossAttentionBlock(nn.Module):
         self.input_norm = nn.LayerNorm(d_model)
         self.qkv_proj = nn.Linear(d_model, d_model * 3, bias=False)
         self.multi_head_attention = MultiHeadAttention(
+            d_model=d_model, 
+            num_heads=num_heads
+        )
+        self.cross_multi_head_attention = MultiHeadAttention(
             d_model=d_model, 
             num_heads=num_heads
         )
@@ -286,7 +301,8 @@ class GeometryAwareCrossAttentionBlock(nn.Module):
         key_features = key_points[:, 3:, :]  # [batch, feature_dim, num_points]
         
         # Normalize features
-        norm_features = self.input_norm(query_features.transpose(1, 2))  # [batch, num_points, feature_dim]
+        query_features = query_features.transpose(1, 2).contiguous()
+        norm_features = self.input_norm(query_features)  # [batch, num_points, feature_dim]
         
         # Self-attention
         qkv = self.qkv_proj(norm_features)  # [batch, num_points, 3*feature_dim]
@@ -308,7 +324,7 @@ class GeometryAwareCrossAttentionBlock(nn.Module):
         attn_features = self.self_merge_proj(attn_features)  # [batch, num_points, feature_dim]
         
         # Residual connection
-        query_features = attn_features + query_features.transpose(1,2)  # [batch, num_points, feature_dim]
+        query_features = query_features + attn_features  # [batch, num_points, feature_dim]
         
         #################################
         # Geometry-aware Cross-attention #
@@ -320,7 +336,7 @@ class GeometryAwareCrossAttentionBlock(nn.Module):
         cross_q = self.cross_q_map(normed_query_features)
         cross_k = self.cross_k_map(normed_key_features)
         cross_v = self.cross_v_map(normed_key_features)
-        cross_features = self.multi_head_attention(cross_q, cross_k, cross_v)
+        cross_features = self.cross_multi_head_attention(cross_q, cross_k, cross_v)
         
         cross_query_points = torch.cat([query_coords, normed_query_features.transpose(1,2)], dim=1)
         cross_key_points = torch.cat([key_coords, normed_key_features.transpose(1,2)], dim=1)
@@ -335,4 +351,4 @@ class GeometryAwareCrossAttentionBlock(nn.Module):
         query_features = query_features + cross_features
         query_features = query_features + self.feed_forward(self.feed_forward_norm(query_features))
         
-        return torch.cat([query_coords, query_features.transpose(1,2)], dim=1) 
+        return query_coords, query_features.transpose(1, 2)

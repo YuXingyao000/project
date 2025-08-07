@@ -221,7 +221,7 @@ class DGCNN_Grouper(nn.Module):
         points = self.edge_conv4(query_points, key_points) # bs, [3 + 128], num_points // 16
         
         
-        return points
+        return points[:, :3, :], points[:, 3:, :]
             
 
 if __name__ == "__main__":

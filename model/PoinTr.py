@@ -67,7 +67,7 @@ class PoinTr(nn.Module):
         self.global_feature_dim = 1024
 
         self.fold_step = int(pow(self.num_pred//self.num_query, 0.5) + 0.5)
-        self.base_model = PCTransformer(in_chans = 3, embed_dim = self.trans_dim, depth = [[1, 5], [1, 5]], num_heads = 6, num_query = self.num_query)
+        self.base_model = PCTransformer(in_chans = 3, embed_dim = self.trans_dim, depth = [[1, 5], [1, 7]], num_heads = 6, num_query = self.num_query)
         
         self.foldingnet = Fold(self.trans_dim, step = self.fold_step, hidden_dim = 256)  # rebuild a cluster point
 
@@ -90,43 +90,42 @@ class PoinTr(nn.Module):
         self.build_loss_func()
 
     def build_loss_func(self):
-        from model.chamfer_distance import ChamferDistanceL1
-        self.loss_func = ChamferDistanceL1()
+        from chamfer_distance import ChamferDistance as chamfer_dist
+        self.loss_func = chamfer_dist()
 
     def get_loss(self, coarse_point_cloud, rebuild_points, gt_point_cloud):
-        loss_coarse = self.loss_func(coarse_point_cloud, gt_point_cloud)
-        loss_fine = self.loss_func(rebuild_points, gt_point_cloud)
+        loss_coarse_l, loss_coarse_r, loss_coarse_idx_l, loss_coarse_idx_r = self.loss_func(coarse_point_cloud, gt_point_cloud)
+        loss_fine_l, loss_fine_r, loss_fine_idx_l, loss_fine_idx_r = self.loss_func(rebuild_points, gt_point_cloud)
         # loss_brep = self.loss_func(pred_brep_grid, gt_brep_grid)
-        return loss_coarse, loss_fine
+        return (loss_coarse_l.mean(dim=1) + loss_coarse_r.mean(dim=1)).mean(), (loss_fine_l.mean(dim=1) + loss_fine_r.mean(dim=1)).mean()
 
     def forward(self, xyz):
-        rebuild_points = self.base_model(xyz)  # bs, [3 + 384], num_query
+        query_features, coarse_point_cloud = self.base_model(xyz)  # bs, [3 + 384], num_query
 
-        coordinates, incomplete_pc_features = extract_coordinates_and_features(rebuild_points)
-        batch_size, feature_dim, num_query = incomplete_pc_features.shape
+        batch_size, num_query, feature_dim = query_features.shape
 
-        global_feature = self.increase_dim(incomplete_pc_features).transpose(1,2) # bs num_query 1024
+        global_feature = self.increase_dim(query_features.transpose(1,2)).transpose(1,2) # bs num_query 1024
         global_feature = torch.max(global_feature, dim=1)[0] # bs 1024
 
         rebuild_feature = torch.cat([
-            global_feature.unsqueeze(-1).expand(-1, -1, num_query),
-            incomplete_pc_features,
-            coordinates], dim=-2).transpose(1,2).contiguous()  # bs num_query 1027 + 384
+            global_feature.unsqueeze(-2).expand(-1, num_query, -1),
+            query_features,
+            coarse_point_cloud], dim=-1) # bs num_query 1027 + 384
 
         # brep_grid_test = self.brep_grid_test(rebuild_feature)
         # brep_grid_test = brep_grid_test.reshape(batch_size, 30, 16, 16, 3)
-        rebuild_feature = self.reduce_map(rebuild_feature.reshape(batch_size * self.num_query, -1)) # bs num_query 1027 + 384
+        rebuild_feature = self.reduce_map(rebuild_feature.reshape(batch_size * num_query, -1)) # bs num_query 1027 + 384
         
         # # NOTE: try to rebuild pc
         # coarse_point_cloud = self.refine_coarse(rebuild_feature).reshape(B, M, 3)
 
         # NOTE: foldingNet
         relative_xyz = self.foldingnet(rebuild_feature).reshape(batch_size, num_query, 3, -1)    # bs num_query 3 S
-        rebuild_points = (relative_xyz + coordinates.transpose(1,2).unsqueeze(-1)).transpose(2,3).reshape(batch_size, -1, 3)  # bs num_pred 3
+        rebuild_points = (relative_xyz + coarse_point_cloud.unsqueeze(-1)).transpose(2,3).reshape(batch_size, -1, 3)  # bs num_pred 3
 
         # cat the input
         inp_sparse = fps(xyz, self.num_query)
-        coarse_point_cloud = torch.cat([coordinates.transpose(1,2), inp_sparse], dim=1).contiguous()
+        coarse_point_cloud = torch.cat([coarse_point_cloud, inp_sparse], dim=1).contiguous()
         rebuild_points = torch.cat([rebuild_points, xyz],dim=1).contiguous()
 
         return coarse_point_cloud, rebuild_points

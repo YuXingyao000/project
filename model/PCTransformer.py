@@ -10,7 +10,12 @@ import torch.nn as nn
 from timm.models.layers import trunc_normal_
 
 from model.DGCNN import DGCNN_Grouper
-from model.encoder import GeometryAwareTransformerEncoder, GeometryAwareTransformerDecoder
+from model.transformer_blocks import (
+    SelfAttentionBlock, 
+    GeometryAwareSelfAttentionBlock,
+    CrossAttentionBlock,
+    GeometryAwareCrossAttentionBlock
+)
 
 
 class PCTransformer(nn.Module):
@@ -56,11 +61,9 @@ class PCTransformer(nn.Module):
         )
 
         # Transformer encoder
-        self.encoder = GeometryAwareTransformerEncoder(
-            d_model=embed_dim, 
-            geom_block_num=depth[0][0], 
-            vanilla_block_num=depth[0][1], 
-            num_heads=num_heads
+        self.encoder = nn.ModuleList(
+            [GeometryAwareSelfAttentionBlock(d_model=embed_dim, num_heads=num_heads) for _ in range(depth[0][0])] +
+            [SelfAttentionBlock(d_model=embed_dim, num_heads=num_heads) for _ in range(depth[0][1])]
         )
 
         # Feature dimension increase for global representation
@@ -89,11 +92,9 @@ class PCTransformer(nn.Module):
         )
 
         # Transformer decoder
-        self.decoder = GeometryAwareTransformerDecoder(
-            d_model=embed_dim, 
-            geom_block_num=depth[1][0], 
-            cross_block_num=depth[1][1], 
-            num_heads=num_heads
+        self.decoder = nn.ModuleList(
+            [GeometryAwareCrossAttentionBlock(d_model=embed_dim, num_heads=num_heads) for _ in range(depth[1][0])] +
+            [CrossAttentionBlock(d_model=embed_dim, num_heads=num_heads) for _ in range(depth[1][1])]
         )
 
         # Initialize weights
@@ -132,11 +133,7 @@ class PCTransformer(nn.Module):
                 - features: [batch, 256, num_points//16]
         """
         # Group points and extract features
-        points = self.grouper(incomplete_point_cloud.transpose(1, 2).contiguous())
-        
-        # Extract coordinates and features
-        coords = points[:, :3, :]  # [batch, 3, num_points//16]
-        features = points[:, 3:, :]  # [batch, 256, num_points//16]
+        coords, features = self.grouper(incomplete_point_cloud.transpose(1, 2).contiguous())
         
         return coords, features
 
@@ -157,10 +154,7 @@ class PCTransformer(nn.Module):
         # Project input features
         input_features = self.input_proj(features)  # [batch, embed_dim, num_points]
         
-        # Combine position embedding and input features
-        encoded_features = pos_embed + input_features
-        
-        return encoded_features
+        return pos_embed, input_features
 
     def _generate_query_points(self, global_feature):
         """
@@ -179,8 +173,8 @@ class PCTransformer(nn.Module):
         
         # Prepare query features
         query_feature = torch.cat([
-            coarse_point_cloud,
-            global_feature.unsqueeze(1).expand(-1, self.num_query, -1)
+            global_feature.unsqueeze(1).expand(-1, self.num_query, -1),
+            coarse_point_cloud
         ], dim=-1)  # [batch, num_query, 3 + 1024]
         
         # Process query features
@@ -204,30 +198,31 @@ class PCTransformer(nn.Module):
         coords, features = self._build_point_proxy(incomplete_point_cloud)
         
         # Step 2: Encode point features
-        encoded_features = self._encode_point_features(coords, features)
+        pos_embed, x = self._encode_point_features(coords, features)
         
-        # Step 3: Prepare encoder input
-        encoder_input = torch.cat([coords, encoded_features], dim=1)
-        
-        # Step 4: Encode features
-        encoder_output = self.encoder(encoder_input)  # [batch, 3+embed_dim, num_points//16]
+        # TODO: Need to be modified, the encoder is not correct
+        for i, encoder_block in enumerate(self.encoder):
+            _, x = encoder_block(torch.cat([coords, x + pos_embed], dim=1))
         
         # Step 5: Generate global feature
-        global_feature = encoder_output[:, 3:, :]  # [batch, embed_dim, num_points//16]
-        global_feature = self.increase_dim(global_feature)  # [batch, 1024, num_points//16]
+        global_feature = self.increase_dim(x)  # [batch, 1024, num_points//16]
         global_feature = torch.max(global_feature, dim=-1)[0]  # [batch, 1024]
         
-        # Step 6: Generate query points
-        coarse_points, query_features = self._generate_query_points(global_feature)
+        # TODO: Not correct, coarse_point_cloud is not implemented
+        # Generate coarse point cloud
+        coarse_point_cloud = self.coarse_pred(global_feature).reshape(-1, self.num_query, 3)
+        # Prepare query features
+        query_feature = torch.cat([
+            global_feature.unsqueeze(1).expand(-1, self.num_query, -1),
+            coarse_point_cloud
+        ], dim=-1)
+        # Process query features
+        query_feature = self.query_conv(query_feature.transpose(1, 2))
         
-        # Step 7: Prepare decoder inputs
-        key_points = encoder_output  # [batch, 3+embed_dim, num_points//16]
-        query_points = torch.cat([coarse_points, query_features], dim=-1).transpose(1, 2)
-        
-        # Step 8: Decode to generate completion
-        completed_points = self.decoder(query_points, key_points)
-        
-        return completed_points
+        for i, decoder_block in enumerate(self.decoder):
+            _, query_feature = decoder_block(torch.cat([coarse_point_cloud.transpose(1, 2), query_feature], dim=1), torch.cat([coords, x], dim=1))
+
+        return query_feature.transpose(1, 2).contiguous(), coarse_point_cloud
 
 
 if __name__ == "__main__":
@@ -243,14 +238,15 @@ if __name__ == "__main__":
     model = PCTransformer(
         in_chans=3, 
         embed_dim=384, 
-        depth=[[1, 5], [1, 5]], 
+        depth=[[1, 5], [1, 7]], 
         num_heads=6, 
         num_query=224
     ).to(device)
     
     # Test forward pass
     with torch.no_grad():
-        output = model(test_input)
+        query_features, coarse_point_cloud = model(test_input)
         print(f"Input shape: {test_input.shape}")
-        print(f"Output shape: {output.shape}")
+        print(f"Query features shape: {query_features.shape}")
+        print(f"Coarse point cloud shape: {coarse_point_cloud.shape}")
         print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")

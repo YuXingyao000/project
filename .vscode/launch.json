@@ -61,6 +61,14 @@
             "module": "test_model_final",
             "args": [
             ]
+        },
+        {
+            "name": "inference",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "inference.inference",
+            "args": [
+            ]
         }
     ]
 }
