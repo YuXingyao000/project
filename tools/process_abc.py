@@ -34,6 +34,9 @@ def process_step_folder(data_root, output_root, step_ids, brep_sample_resolution
             solid_processor.export_uv_grids(output_root / step_id / f"{step_id}.npz", sample_resolution=brep_sample_resolution)
             solid_processor.export_point_cloud_numpy(output_root / step_id / f"{step_id}_pc.npz")
             solid_processor.export_random_cropped_pc(output_root / step_id / f"{step_id}_cropped_pc.h5")
+            solid_processor.export_scanned_point_cloud(output_root / step_id / f"{step_id}_scanned_pc_cube.h5", strategy='cube')
+            solid_processor.export_scanned_point_cloud(output_root / step_id / f"{step_id}_scanned_pc_sphere.h5", strategy='sphere', n_viewpoints=64)
+            solid_processor.export_photos(output_root / step_id / f"{step_id}_photos.npz")
             count += 1
             print(f"Processed {count} steps")
             if count > 1000:

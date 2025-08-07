@@ -53,7 +53,7 @@ class PhotoRenderer:
         # Render images from all viewpoints
         images = self.render_images(viewpoints, up_directions, Graphic3d_NameOfMaterial_Silver)
         
-        return images, viewpoints, up_directions
+        return np.stack(images, axis=0)
     
     def init_renderer(self, screen_size=(224, 224), color=[255, 255, 255]):
         """Initialize the offscreen renderer."""

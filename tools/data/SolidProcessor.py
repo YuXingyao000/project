@@ -1,10 +1,8 @@
 import open3d as o3d
 import numpy as np
 import os
-import random
 
-from tools.data.RandomCropper import RandomCropper
-from tools.data.VirtualScanner import VirtualScanner
+from tools.data import RandomCropper, VirtualScanner, PhotoRenderer
 
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX, TopAbs_REVERSED
@@ -16,7 +14,6 @@ from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
 from OCC.Core import BRepBndLib
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.gp import gp_Trsf, gp_Vec
-from OCC.Extend.DataExchange import write_step_file
 from OCC.Core.STEPControl import STEPControl_Writer
 from OCC.Core.IFSelect import IFSelect_RetDone
 from OCC.Core.GeomLProp import GeomLProp_SLProps
@@ -267,7 +264,9 @@ class SolidProcessor:
                             face_sample_points=face_sample_points)
     
     def export_photos(self, photo_path, strategy='cube', n_viewpoints=None, radius=1.0, n_rays=2048):
-        pass
+        renderer = PhotoRenderer(self.solid)
+        images, viewpoints, up_directions = renderer.process()
+        np.savez_compressed(photo_path, images=images, viewpoints=viewpoints, up_directions=up_directions)
     
     def _create_dir_if_not_exist(self, path):
         if not os.path.exists(path):
