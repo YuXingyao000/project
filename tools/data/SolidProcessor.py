@@ -151,7 +151,7 @@ class SolidProcessor:
             mesh_path: Output path for STL file
             line_deflection: Mesh quality parameter (default 0.1)
         """
-        self._create_dir_if_not_exist(os.path.dirname(mesh_path))
+        # self._create_dir_if_not_exist(os.path.dirname(mesh_path))
         vertices, faces = self.get_triangulations(line_deflection, angle_deflection)
 
         mesh = o3d.geometry.TriangleMesh()
@@ -181,7 +181,7 @@ class SolidProcessor:
         points = np.asarray(self.point_cloud.points, dtype=np.float32)
         np.savez_compressed(point_cloud_path, points=points)
 
-    def export_scanned_point_cloud(self, scanned_pc_path, strategy='sphere', n_viewpoints=64, radius=1.0, n_rays=2048):
+    def export_scanned_point_cloud(self, scanned_pc_path, strategy='sphere', n_viewpoints=64, radius=2.0, n_rays=2048):
         """
         Mimic a real-world scanner by generating point clouds from multiple viewpoints.
         
@@ -263,10 +263,10 @@ class SolidProcessor:
         np.savez_compressed(uv_grid_path, 
                             face_sample_points=face_sample_points)
     
-    def export_photos(self, photo_path, strategy='cube', n_viewpoints=None, radius=1.0, n_rays=2048):
+    def export_photos(self, photo_path):
         renderer = PhotoRenderer(self.solid)
-        images, viewpoints, up_directions = renderer.process()
-        np.savez_compressed(photo_path, images=images, viewpoints=viewpoints, up_directions=up_directions)
+        images = renderer.process()
+        np.savez_compressed(photo_path, images=images)
     
     def _create_dir_if_not_exist(self, path):
         if not os.path.exists(path):
