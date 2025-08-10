@@ -5,15 +5,32 @@ import argparse
 import traceback
 import shutil
 import sys
+import numpy as np
+import random
+
+# Set DISPLAY environment variable for headless servers
+if 'DISPLAY' not in os.environ:
+    os.environ['DISPLAY'] = ':99'
 
 from tools.data import SolidProcessor, ABCReader
 
 MAX_SURFACE_NUM = 30
 MIN_SURFACE_NUM = 7
 
-def process_step_folder(data_root, output_root, step_ids, brep_sample_resolution, point_cloud_sample_num):
-    count = 0
-    for step_id in step_ids:
+def set_random_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    print(f"Random seed set to: {seed}")
+
+def process_step_folder(data_root, output_root, step_ids, brep_sample_resolution, point_cloud_sample_num, scanned_pc_n_points, base_seed=None):
+    if 'DISPLAY' not in os.environ:
+        os.environ['DISPLAY'] = ':99'
+    
+    for i, step_id in enumerate(step_ids):
+        if base_seed is not None:
+            file_seed = base_seed + i
+            set_random_seed(file_seed)
         try:
             if not os.path.exists(output_root / step_id):
                 os.makedirs(output_root / step_id)
@@ -34,13 +51,9 @@ def process_step_folder(data_root, output_root, step_ids, brep_sample_resolution
             solid_processor.export_uv_grids(output_root / step_id / f"{step_id}.npz", sample_resolution=brep_sample_resolution)
             solid_processor.export_point_cloud_numpy(output_root / step_id / f"{step_id}_pc.npz")
             solid_processor.export_random_cropped_pc(output_root / step_id / f"{step_id}_cropped_pc.h5")
-            solid_processor.export_scanned_point_cloud(output_root / step_id / f"{step_id}_scanned_pc_cube.h5", strategy='cube')
-            solid_processor.export_scanned_point_cloud(output_root / step_id / f"{step_id}_scanned_pc_sphere.h5", strategy='sphere', n_viewpoints=64)
+            solid_processor.export_scanned_point_cloud(output_root / step_id / f"{step_id}_scanned_pc_cube.h5", strategy='cube', n_points=scanned_pc_n_points)
+            solid_processor.export_scanned_point_cloud(output_root / step_id / f"{step_id}_scanned_pc_sphere.h5", strategy='sphere', n_points=scanned_pc_n_points)
             solid_processor.export_photos(output_root / step_id / f"{step_id}_photos.npz")
-            count += 1
-            print(f"Processed {count} steps")
-            if count > 1000:
-                break
         except Exception as e:
             with open(output_root / "error.txt", "a") as f:
                 tb_list = traceback.extract_tb(sys.exc_info()[2])
@@ -55,18 +68,21 @@ def process_step_folder(data_root, output_root, step_ids, brep_sample_resolution
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_root", type=str, required=True)
-    parser.add_argument("--output_root", type=str, required=True)
-    parser.add_argument("--use_ray", action="store_true")
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--num_cpus", type=int, default=16)
-    parser.add_argument("--brep_sample_resolution", type=int, default=32)
-    parser.add_argument("--point_cloud_sample_num", type=int, default=8192)
+    parser.add_argument("--data_root", type=str, required=True, help="Path to the data root")
+    parser.add_argument("--output_root", type=str, required=True, help="Path to the output root")
+    parser.add_argument("--use_ray", action="store_true", help="Use Ray for parallel processing")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size for parallel processing")
+    parser.add_argument("--num_cpus", type=int, default=16, help="Number of CPUs for parallel processing")
+    parser.add_argument("--brep_sample_resolution", type=int, default=32, help="Brep sample resolution")
+    parser.add_argument("--point_cloud_sample_num", type=int, default=8192, help="Number of points to sample a whole point cloud")
+    parser.add_argument("--scanned_pc_n_points", type=int, default=2048, help="Number of points to sample a point cloud with a virtual scanner")
+    parser.add_argument("--random_seed", type=int, default=114514, help="Random seed for reproducibility")
     args = parser.parse_args()
     
     data_root = Path(args.data_root)
     output_root = Path(args.output_root)
     batch_size = args.batch_size
+    set_random_seed(args.random_seed)
     
     step_ids = os.listdir(data_root)
     step_ids.sort()
@@ -80,9 +96,10 @@ if __name__ == '__main__':
         tasks = []
         
         for i in range(0, len(step_ids), batch_size):
+            base_seed = args.random_seed + i
             batch_ids = step_ids[i:min(len(step_ids), i + batch_size)]
-            tasks.append(process_step_folder_remote.remote(data_root, output_root, batch_ids, args.brep_sample_resolution, args.point_cloud_sample_num))
+            tasks.append(process_step_folder_remote.remote(data_root, output_root, batch_ids, args.brep_sample_resolution, args.point_cloud_sample_num, args.scanned_pc_n_points, base_seed))
         ray.get(tasks)
         ray.shutdown()
     else:
-        process_step_folder(data_root, output_root, step_ids, args.brep_sample_resolution, args.point_cloud_sample_num)
+        process_step_folder(data_root, output_root, step_ids, args.brep_sample_resolution, args.point_cloud_sample_num, args.scanned_pc_n_points, args.random_seed)

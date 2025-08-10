@@ -181,19 +181,20 @@ class SolidProcessor:
         points = np.asarray(self.point_cloud.points, dtype=np.float32)
         np.savez_compressed(point_cloud_path, points=points)
 
-    def export_scanned_point_cloud(self, scanned_pc_path, strategy='sphere', n_viewpoints=64, radius=2.0, n_rays=2048):
+    def export_scanned_point_cloud(self, scanned_pc_path, n_points=2048, strategy='sphere', n_viewpoints=64, radius=2.0, n_rays=2048):
         """
         Mimic a real-world scanner by generating point clouds from multiple viewpoints.
         
         Args:
             scanned_pc_path: Output path for npz file
+            n_points: Number of points to sample (default: 2048)
             n_viewpoints: Number of viewpoints to use (default: 8)
             strategy: Viewpoint selection strategy ('sphere' or 'cube')
             radius: Radius of the sphere or half-edge length of cube (default: 1.0)
         """
         self._create_dir_if_not_exist(os.path.dirname(scanned_pc_path))
         
-        virtual_scanner = VirtualScanner(self.mesh, strategy, n_viewpoints, radius, n_rays)
+        virtual_scanner = VirtualScanner(self.mesh, strategy, n_viewpoints, radius, n_rays, n_points)
         # Ensure we have a mesh
         if self.mesh is None:
             vertices, faces = self.get_triangulations()
@@ -265,8 +266,8 @@ class SolidProcessor:
     
     def export_photos(self, photo_path):
         renderer = PhotoRenderer(self.solid)
-        images = renderer.process()
-        np.savez_compressed(photo_path, images=images)
+        svr_images, mvr_images = renderer.process()
+        np.savez_compressed(photo_path, svr=svr_images, mvr=mvr_images)
     
     def _create_dir_if_not_exist(self, path):
         if not os.path.exists(path):

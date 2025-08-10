@@ -47,13 +47,10 @@ class PhotoRenderer:
         Returns:
             - List of numpy arrays containing rendered images (224x224x3)
         """
-        # Generate systematic viewpoints
-        viewpoints, up_directions = self.generate_viewpoints()
+        svr_images = self.render_svr_images()
+        mvr_images = self.render_mvr_images()
         
-        # Render images from all viewpoints
-        images = self.render_images(viewpoints, up_directions, Graphic3d_NameOfMaterial_Silver)
-        
-        return np.stack(images, axis=0)
+        return svr_images, mvr_images
     
     def init_renderer(self, screen_size=(224, 224), color=[255, 255, 255]):
         """Initialize the offscreen renderer."""
@@ -70,6 +67,73 @@ class PhotoRenderer:
         material = Graphic3d_MaterialAspect(enum_material)
         material.SetReflectionModeOff(Graphic3d_TypeOfReflection.Graphic3d_TOR_SPECULAR)
         return material
+    
+    
+    def render_svr_images(self):
+        svr_imgs = []
+        init_pos = np.array((2, 2, 2))
+        up_pos = np.array((2, 2, 3))
+        for i in range(64):
+            angles = np.array([
+                i % 4,
+                i // 4 % 4,
+                i // 16
+            ])
+            matrix = Rotation.from_euler('xyz', angles * np.pi / 2).as_matrix().T
+            view = (matrix @ init_pos.T).T
+            up = (matrix @ up_pos.T).T
+            
+            self.renderer.camera.SetEyeAndCenter(gp_Pnt(view[0], view[1], view[2]), gp_Pnt(0., 0., 0.))
+            self.renderer.camera.SetUp(gp_Dir(up[0], up[1], up[2]))
+            data = self.renderer.GetImageData(224, 224)
+            img = Image.frombytes("RGB", (224, 224), data)
+            img1 = np.asarray(img)
+            img1 = img1[::-1]
+            svr_imgs.append(img1)
+        svr_imgs = np.stack(svr_imgs, axis=0)
+        return svr_imgs
+
+    def render_mvr_images(self):
+        mvr_imgs = []
+        for j in range(8):
+            imgs = []
+            if j == 0:
+                init_pos = np.array((2, 2, 2))
+            elif j == 1:
+                init_pos = np.array((-2, 2, 2))
+            elif j == 2:
+                init_pos = np.array((-2, -2, 2))
+            elif j == 3:
+                init_pos = np.array((2, -2, 2))
+            elif j == 4:
+                init_pos = np.array((2, 2, -2))
+            elif j == 5:
+                init_pos = np.array((-2, 2, -2))
+            elif j == 6:
+                init_pos = np.array((-2, -2, -2))
+            elif j == 7:
+                init_pos = np.array((2, -2, -2))
+            up_pos = init_pos + np.array((0, 0, 1))
+            for i in range(64):
+                angles = np.array([
+                    i % 4,
+                    i // 4 % 4,
+                    i // 16
+                ])
+                matrix = Rotation.from_euler('xyz', angles * np.pi / 2).as_matrix().T
+                view = (matrix @ init_pos.T).T
+                up = (matrix @ up_pos.T).T
+                self.renderer.camera.SetEyeAndCenter(gp_Pnt(view[0], view[1], view[2]), gp_Pnt(0., 0., 0.))
+                self.renderer.camera.SetUp(gp_Dir(up[0], up[1], up[2]))
+                data = self.renderer.GetImageData(224, 224)
+                img = Image.frombytes("RGB", (224, 224), data)
+                img1 = np.asarray(img)
+                img1 = img1[::-1]
+                imgs.append(img1)
+            imgs = np.stack(imgs, axis=0)
+            mvr_imgs.append(imgs)
+        mvr_imgs = np.stack(mvr_imgs, axis=0)
+        return mvr_imgs
     
     def render_images(self, viewpoints, up_directions, material):
         """Generate images from given viewpoints around the object.
@@ -96,10 +160,37 @@ class PhotoRenderer:
         return images
     
     
-    def generate_viewpoints(self):
+    def generate_cube_viewpoints(self):
+        """Generate viewpoints from the 8 corners of a cube.
+        
+        Starting from [2, 2, 2], generates all 8 corners by varying the signs:
+        [2, 2, 2], [2, 2, -2], [2, -2, 2], [2, -2, -2], 
+        [-2, 2, 2], [-2, 2, -2], [-2, -2, 2], [-2, -2, -2]
+        
+        Returns:
+            viewpoints: List of 8 corner positions
+            up_directions: List of corresponding up directions
+        """
+        viewpoints = []
+        up_directions = []
+        
+        # Base position
+        base_pos = np.array([2, 2, 2])
+        
+        # Generate all 8 corners by varying signs
+        for x_sign in [-1, 1]:
+            for y_sign in [-1, 1]:
+                for z_sign in [-1, 1]:
+                    corner = np.array([x_sign * 2, y_sign * 2, z_sign * 2])
+                    viewpoints.append(corner)
+                    up_directions.append(corner + np.array([0, 0, 1]))
+        
+        return viewpoints, up_directions
+    
+    def generate_augmented_viewpoints(self):
         """Generate augmented viewpoints
         It is sampling viewpoints from a cube.
-        Rotation (90 degrees) and mirror(horizontal) are applied to the viewpoints.
+        64 permutations of all the rotations and mirrorings.
         
         Args:
             num_viewpoints: Number of viewpoints to generate (default: 64)

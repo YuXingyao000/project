@@ -20,7 +20,10 @@
                 "16",
                 "--point_cloud_sample_num",
                 "8192"
-            ]
+            ],
+            "env": {
+                "DISPLAY": ":99"
+            }
         },
         {
             "name": "partial_point_cloud",
@@ -85,6 +88,21 @@
             "module": "tools.data.VirtualScanner",
             "args": [
             ]
+        },
+        {
+            "name": "abc_process_xvfb",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/usr/bin/xvfb-run",
+            "args": [
+                "python", "-m", "tools.process_abc",
+                "--data_root", "/mnt/d/data/data_step",
+                "--output_root", "/mnt/d/data/1000_processed_data",
+                "--batch_size", "32",
+                "--brep_sample_resolution", "16",
+                "--point_cloud_sample_num", "8192"
+            ],
+            "console": "integratedTerminal"
         }
     ]
 }
