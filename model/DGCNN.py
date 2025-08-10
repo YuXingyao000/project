@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from model.model_utils import fps_downsample, knn_index
+from model.Utils import fps_downsample, knn_index
 from einops import rearrange, repeat
 
 class kNNQuery(nn.Module):
@@ -192,7 +192,7 @@ class EdgeConv(nn.Module):
 
 
 class DGCNN_Grouper(nn.Module):
-    def __init__(self, input_dim = 3, output_dim = 128, k_nearest_neighbors = 16):
+    def __init__(self, input_dim=3, output_dim=128, k_nearest_neighbors=16):
         super().__init__()
         # K has to be 16
         self.input_trans = nn.Conv1d(input_dim, 8, 1)

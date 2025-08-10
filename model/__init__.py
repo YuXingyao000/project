@@ -5,32 +5,64 @@ This package contains the modular implementation of the PCTransformer
 for point cloud completion tasks.
 """
 
-from .PCTransformer import PCTransformer
-from .attention import MultiHeadAttention, FeedForward
-from .transformer_blocks import (
+# Main model classes
+from .PoinTrPCTransformer import PoinTrPCTransformer
+from .PoinTr import PoinTr
+
+# Attention and transformer components
+from .Attention import MultiHeadAttention, FeedForward
+from .TransformerBlocks import (
     SelfAttentionBlock,
     GeometryAwareSelfAttentionBlock,
     CrossAttentionBlock,
     GeometryAwareCrossAttentionBlock
 )
-from .encoder import GeometryAwareTransformerEncoder, GeometryAwareTransformerDecoder
-from .geometry import (
+
+# Encoder and Decoder components
+from .GAEncoder import GeometryAwareTransformerEncoder
+from .GADecoder import GeometryAwareTransformerDecoder
+
+# Query generation and utility components
+from .QueryGenerator import QueryGenerator
+from .DGCNN import kNNQuery, EdgeConv, DGCNN_Grouper
+
+# Utility functions
+from .Utils import (
+    fps_downsample,
+    knn_index,
+    square_distance,
     sinusoidal_position_encoding,
     extract_coordinates_and_features,
     combine_coordinates_and_features
 )
-from .PoinTr import PoinTr
 
 __all__ = [
-    'PCTransformer',
+    # Main models
+    'PoinTrPCTransformer',
+    'PoinTr',
+    
+    # Attention components
     'MultiHeadAttention',
     'FeedForward',
     'SelfAttentionBlock',
     'GeometryAwareSelfAttentionBlock',
     'CrossAttentionBlock',
     'GeometryAwareCrossAttentionBlock',
+    
+    # Encoder/Decoder components
     'GeometryAwareTransformerEncoder',
     'GeometryAwareTransformerDecoder',
+    
+    # Query and grouping components
+    'QueryGenerator',
+    'kNNQuery',
+    'EdgeConv',
+    'DGCNN_Grouper',
+    
+    # Utility functions
+    'fps_downsample',
+    'knn_index',
+    'square_distance',
     'sinusoidal_position_encoding',
     'extract_coordinates_and_features',
     'combine_coordinates_and_features'

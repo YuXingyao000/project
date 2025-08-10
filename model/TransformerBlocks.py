@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 from einops import rearrange
 
-from model.attention import MultiHeadAttention, FeedForward
+from model.Attention import MultiHeadAttention, FeedForward
 from model.DGCNN import kNNQuery
 
 

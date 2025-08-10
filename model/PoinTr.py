@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from pointnet2_ops import pointnet2_utils
-from model.PCTransformer import PCTransformer
+from model.PoinTrPCTransformer import PoinTrPCTransformer
 
 
 def fps(pc, num):
@@ -12,7 +12,7 @@ def fps(pc, num):
 
 
 class Fold(nn.Module):
-    def __init__(self, in_channel , step , hidden_dim = 512):
+    def __init__(self, in_channel, step, hidden_dim=512):
         super().__init__()
 
         self.in_channel = in_channel
@@ -66,9 +66,9 @@ class PoinTr(nn.Module):
         self.global_feature_dim = 1024
 
         self.fold_step = int(pow(self.num_pred//self.num_query, 0.5) + 0.5)
-        self.base_model = PCTransformer(in_chans = 3, embed_dim = self.trans_dim, depth = [[1, 5], [1, 7]], num_heads = 6, num_query = self.num_query)
+        self.base_model = PoinTrPCTransformer(in_chans=3, embed_dim=self.trans_dim, depth=[[1, 5], [1, 7]], num_heads=6, num_query=self.num_query)
         
-        self.foldingnet = Fold(self.trans_dim, step = self.fold_step, hidden_dim = 256)  # rebuild a cluster point
+        self.foldingnet = Fold(self.trans_dim, step=self.fold_step, hidden_dim=256)  # rebuild a cluster point
 
         self.increase_dim = nn.Sequential(
             nn.Conv1d(self.trans_dim, self.global_feature_dim, 1),
@@ -111,7 +111,7 @@ class PoinTr(nn.Module):
         # cat the input
         inp_sparse = fps(xyz, self.num_query)
         coarse_point_cloud = torch.cat([coarse_point_cloud, inp_sparse], dim=1).contiguous()
-        rebuild_points = torch.cat([rebuild_points, xyz],dim=1).contiguous()
+        rebuild_points = torch.cat([rebuild_points, xyz], dim=1).contiguous()
 
         return coarse_point_cloud, rebuild_points
 

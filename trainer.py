@@ -6,7 +6,6 @@ os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 from model import PoinTr
 from utils import misc
 import time
-from chamfer_distance import ChamferDistance as chamfer_dist
 from dataset.dataset import ABCDataset
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -58,7 +57,7 @@ def validate(model, val_dataloader, device):
     
     return avg_sparse_loss, avg_total_loss
 
-def run_net():
+def train():
     # Create tensorboard writer
     current_time = datetime.now().strftime('%b%d_%H-%M-%S')
     log_dir = os.path.join('runs', f'training_{current_time}')
@@ -222,7 +221,7 @@ def run_net():
 
 
 if __name__ == "__main__":
-    run_net()
+    train()
 
 # crop_ratio = {
 #     'easy': 1/4,
