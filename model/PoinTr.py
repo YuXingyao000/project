@@ -3,7 +3,6 @@ from torch import nn
 
 from pointnet2_ops import pointnet2_utils
 from model.PCTransformer import PCTransformer
-from model.geometry import extract_coordinates_and_features
 
 
 def fps(pc, num):
