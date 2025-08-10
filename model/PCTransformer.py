@@ -194,31 +194,37 @@ class PCTransformer(nn.Module):
         """
         batch_size = incomplete_point_cloud.size(0)
         
-        # Step 1: Build point proxy
+        # Build point proxy from the partial point cloud (coords: [batch, 3, num_points//16], features: [batch, 128, num_points//16])
         coords, features = self._build_point_proxy(incomplete_point_cloud)
         
-        # Step 2: Encode point features
+        # Encode point features with position embedding (pos_embed: [batch, 384, num_points//16], x: [batch, 384, num_points//16])
         pos_embed, x = self._encode_point_features(coords, features)
         
-        # TODO: Need to be modified, the encoder is not correct
+        # NOTE: Check the paper, this is the Geometry-aware Transformer Encoder, x is the output of the encoder
         for i, encoder_block in enumerate(self.encoder):
             _, x = encoder_block(torch.cat([coords, x + pos_embed], dim=1))
         
-        # Step 5: Generate global feature
+        
+        #Start of Query Generator
         global_feature = self.increase_dim(x)  # [batch, 1024, num_points//16]
         global_feature = torch.max(global_feature, dim=-1)[0]  # [batch, 1024]
         
-        # TODO: Not correct, coarse_point_cloud is not implemented
-        # Generate coarse point cloud
+        # Directly generate coarse point cloud
         coarse_point_cloud = self.coarse_pred(global_feature).reshape(-1, self.num_query, 3)
-        # Prepare query features
+        
+        # NOTE: Check the paper, concatenate the global feature and the coordinates
         query_feature = torch.cat([
             global_feature.unsqueeze(1).expand(-1, self.num_query, -1),
             coarse_point_cloud
         ], dim=-1)
-        # Process query features
-        query_feature = self.query_conv(query_feature.transpose(1, 2))
         
+        # Process query features
+        # NOTE: Check the paper, this is the MLP layer to produce the query embeddings
+        query_feature = self.query_conv(query_feature.transpose(1, 2))
+        #End of Query Generator
+        
+        
+        # NOTE: Check the paper, this is the Geometry-aware Transformer Decoder
         for i, decoder_block in enumerate(self.decoder):
             _, query_feature = decoder_block(torch.cat([coarse_point_cloud.transpose(1, 2), query_feature], dim=1), torch.cat([coords, x], dim=1))
 

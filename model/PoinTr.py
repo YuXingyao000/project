@@ -79,14 +79,6 @@ class PoinTr(nn.Module):
         )
         self.reduce_map = nn.Linear(self.trans_dim + self.global_feature_dim + 3, self.trans_dim)
 
-        # self.brep_grid_test = nn.Sequential(
-        #     nn.Conv1d(self.num_query, 30, 1),
-        #     nn.LayerNorm(self.trans_dim + self.global_feature_dim + 3),
-        #     nn.LeakyReLU(negative_slope=0.2),
-        #     nn.Linear(self.trans_dim + self.global_feature_dim + 3, 16 * 16 * 3),
-        #     nn.ReLU(inplace=True)
-        # )
-        
         self.build_loss_func()
 
     def build_loss_func(self):
@@ -96,11 +88,10 @@ class PoinTr(nn.Module):
     def get_loss(self, coarse_point_cloud, rebuild_points, gt_point_cloud):
         loss_coarse_l, loss_coarse_r, loss_coarse_idx_l, loss_coarse_idx_r = self.loss_func(coarse_point_cloud, gt_point_cloud)
         loss_fine_l, loss_fine_r, loss_fine_idx_l, loss_fine_idx_r = self.loss_func(rebuild_points, gt_point_cloud)
-        # loss_brep = self.loss_func(pred_brep_grid, gt_brep_grid)
         return (loss_coarse_l.mean(dim=1) + loss_coarse_r.mean(dim=1)).mean(), (loss_fine_l.mean(dim=1) + loss_fine_r.mean(dim=1)).mean()
 
     def forward(self, xyz):
-        query_features, coarse_point_cloud = self.base_model(xyz)  # bs, [3 + 384], num_query
+        query_features, coarse_point_cloud = self.base_model(xyz)  # query_features: bs, num_query(pred_num), 384 # coarse_point_cloud: bs, num_query, 3
 
         batch_size, num_query, feature_dim = query_features.shape
 
@@ -112,16 +103,11 @@ class PoinTr(nn.Module):
             query_features,
             coarse_point_cloud], dim=-1) # bs num_query 1027 + 384
 
-        # brep_grid_test = self.brep_grid_test(rebuild_feature)
-        # brep_grid_test = brep_grid_test.reshape(batch_size, 30, 16, 16, 3)
-        rebuild_feature = self.reduce_map(rebuild_feature.reshape(batch_size * num_query, -1)) # bs num_query 1027 + 384
+        rebuild_feature = self.reduce_map(rebuild_feature.reshape(batch_size * num_query, -1)) # bs*num_query 384
         
-        # # NOTE: try to rebuild pc
-        # coarse_point_cloud = self.refine_coarse(rebuild_feature).reshape(B, M, 3)
-
         # NOTE: foldingNet
         relative_xyz = self.foldingnet(rebuild_feature).reshape(batch_size, num_query, 3, -1)    # bs num_query 3 S
-        rebuild_points = (relative_xyz + coarse_point_cloud.unsqueeze(-1)).transpose(2,3).reshape(batch_size, -1, 3)  # bs num_pred 3
+        rebuild_points = (relative_xyz + coarse_point_cloud.unsqueeze(-1)).transpose(2,3).reshape(batch_size, -1, 3)  # bs num_query*S 3
 
         # cat the input
         inp_sparse = fps(xyz, self.num_query)
