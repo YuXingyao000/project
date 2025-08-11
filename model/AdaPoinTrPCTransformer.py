@@ -4,7 +4,7 @@ from timm.models.layers import trunc_normal_
 
 from model.GAEncoder import GeometryAwareTransformerEncoder
 from model.GADecoder import GeometryAwareTransformerDecoder
-from model.QueryGenerator import DynamicQueryGenerator
+from model.QueryGenerator import AdaptiveDenoisingQueryGenerator
 
 
 
@@ -18,7 +18,7 @@ class AdaPoinTrPCTransformer(nn.Module):
     3. GeometryAwareTransformerDecoder: Refines query points
     """
     
-    def __init__(self, in_chans=3, embed_dim=384, depth=[[1, 5], [1, 7]], num_heads=6, grouper_k_nearest_neighbors=16, downsample_divisor=[4, 8], num_query=224):
+    def __init__(self, in_chans=3, embed_dim=384, depth=[[1, 5], [1, 7]], num_heads=6, grouper_k_nearest_neighbors=16, downsample_divisor=[4, 8], num_query=224, num_noised_query=64, training=True):
         """
         Initialize the PoinTrPCTransformer model.
         
@@ -43,9 +43,11 @@ class AdaPoinTrPCTransformer(nn.Module):
             grouper_k_nearest_neighbors=grouper_k_nearest_neighbors
         )
         
-        self.query_generator = DynamicQueryGenerator(
-            embed_dim=embed_dim,
-            num_query=num_query
+        self.query_generator = AdaptiveDenoisingQueryGenerator(
+            encoder_feature_dim=embed_dim,
+            num_query=num_query,
+            num_noised_query=num_noised_query,
+            training=training
         )
         
         self.decoder = GeometryAwareTransformerDecoder(
