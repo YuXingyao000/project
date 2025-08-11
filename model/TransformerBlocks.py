@@ -128,11 +128,8 @@ class GeometryAwareSelfAttentionBlock(nn.Module):
         attn_features = self.multi_head_attention(q, k, v)  # [batch, num_points, feature_dim]
         
         # Geometry-aware features using kNN
-        # Prepare input for kNN: concatenate coords and normalized features
-        normed_points = torch.cat([coords, norm_features.transpose(1, 2)], dim=1)  # [batch, 3+feature_dim, num_points]
-        
         # Get geometry features
-        geom_features = self.kNNQuery(normed_points, normed_points)  # [batch, 2*feature_dim, num_points, k]
+        geom_features = self.kNNQuery(coords, norm_features.transpose(1, 2), coords, norm_features.transpose(1, 2))  # [batch, 2*feature_dim, num_points, k]
         geom_features = rearrange(geom_features, 'batch double_feature_dim num_points k -> batch k num_points double_feature_dim')
         geom_features = self.kNN_proj(geom_features)  # [batch, k, num_points, feature_dim]
         geom_features = geom_features.max(dim=1, keepdim=False)[0]  # [batch, num_points, feature_dim]
@@ -310,11 +307,8 @@ class GeometryAwareCrossAttentionBlock(nn.Module):
         attn_features = self.multi_head_attention(q, k, v)  # [batch, num_points, feature_dim]
         
         # Geometry-aware features using kNN
-        # Prepare input for kNN: concatenate coords and normalized features
-        normed_points = torch.cat([query_coords, norm_features.transpose(1, 2)], dim=1)  # [batch, 3+feature_dim, num_points]
-        
         # Get geometry features
-        geom_features = self.self_kNNQuery(normed_points, normed_points)  # [batch, 2*feature_dim, num_points, k]
+        geom_features = self.self_kNNQuery(query_coords, norm_features.transpose(1, 2), query_coords, norm_features.transpose(1, 2))  # [batch, 2*feature_dim, num_points, k]
         geom_features = rearrange(geom_features, 'batch double_feature_dim num_points k -> batch k num_points double_feature_dim')
         geom_features = self.kNN_proj1(geom_features)  # [batch, k, num_points, feature_dim]
         geom_features = geom_features.max(dim=1, keepdim=False)[0]  # [batch, num_points, feature_dim]
@@ -338,9 +332,7 @@ class GeometryAwareCrossAttentionBlock(nn.Module):
         cross_v = self.cross_v_map(normed_key_features)
         cross_features = self.cross_multi_head_attention(cross_q, cross_k, cross_v)
         
-        cross_query_points = torch.cat([query_coords, normed_query_features.transpose(1,2)], dim=1)
-        cross_key_points = torch.cat([key_coords, normed_key_features.transpose(1,2)], dim=1)
-        cross_geom_features = self.cross_kNNQuery(cross_query_points, cross_key_points)
+        cross_geom_features = self.cross_kNNQuery(query_coords, normed_query_features.transpose(1,2), key_coords, normed_key_features.transpose(1,2))
         cross_geom_features = rearrange(cross_geom_features, 'batch double_feature_dim num_points k -> batch k num_points double_feature_dim')
         cross_geom_features = self.kNN_proj2(cross_geom_features)  # [batch, k, num_points, feature_dim]
         cross_geom_features = cross_geom_features.max(dim=1, keepdim=False)[0]  # [batch, num_points, feature_dim]

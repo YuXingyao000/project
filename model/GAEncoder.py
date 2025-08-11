@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from model.DGCNN import DGCNN_Grouper
-from model.transformer_blocks import (
+from model.TransformerBlocks import (
     SelfAttentionBlock, 
     GeometryAwareSelfAttentionBlock,
 )

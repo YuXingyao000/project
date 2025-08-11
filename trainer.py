@@ -42,7 +42,6 @@ def validate(model, val_dataloader, device):
             total_loss_val = sparse_loss + brep_loss
             
             total_sparse_loss += sparse_loss.item()
-            # total_brep_loss += brep_loss.item()
             total_loss += total_loss_val.item()
             num_batches += 1
             
@@ -52,7 +51,6 @@ def validate(model, val_dataloader, device):
     
     # Calculate average losses
     avg_sparse_loss = total_sparse_loss / num_batches
-    # avg_brep_loss = total_brep_loss / num_batches
     avg_total_loss = total_loss / num_batches
     
     return avg_sparse_loss, avg_total_loss
@@ -140,7 +138,6 @@ def train():
             
             # Accumulate losses for logging
             total_train_sparse_loss += sparse_loss.item()
-            # total_train_brep_loss += brep_loss.item()
             total_train_loss += _loss.item()
             num_train_batches += 1
             
@@ -148,7 +145,6 @@ def train():
             train_pbar.set_postfix({
                 'Loss': f'{_loss.item():.6f}',
                 'Sparse': f'{sparse_loss.item():.6f}',
-                # 'Brep': f'{brep_loss.item():.6f}'
             })
             
             # Clear variables to free memory
@@ -181,10 +177,8 @@ def train():
         # Log to tensorboard
         writer.add_scalar('Loss/Train_Total', avg_train_loss, epoch)
         writer.add_scalar('Loss/Train_Sparse', avg_train_sparse_loss, epoch)
-        # writer.add_scalar('Loss/Train_Brep', avg_train_brep_loss, epoch)
         writer.add_scalar('Loss/Val_Total', val_total_loss, epoch)
         writer.add_scalar('Loss/Val_Sparse', val_sparse_loss, epoch)
-        # writer.add_scalar('Loss/Val_Brep', val_brep_loss, epoch)
         writer.add_scalar('Learning_Rate', current_lr, epoch)
         
         # Log epoch summary
