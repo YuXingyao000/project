@@ -23,7 +23,7 @@ from .GAEncoder import GeometryAwareTransformerEncoder
 from .GADecoder import GeometryAwareTransformerDecoder
 
 # Query generation and utility components
-from .QueryGenerator import QueryGenerator
+from .QueryGenerator import DynamicQueryGenerator, AdaptiveDenoisingQueryGenerator
 from .DGCNN import kNNQuery, EdgeConv, DGCNN_Grouper
 
 # Utility functions
@@ -54,7 +54,8 @@ __all__ = [
     'GeometryAwareTransformerDecoder',
     
     # Query and grouping components
-    'QueryGenerator',
+    'DynamicQueryGenerator',
+    'AdaptiveDenoisingQueryGenerator',
     'kNNQuery',
     'EdgeConv',
     'DGCNN_Grouper',

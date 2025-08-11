@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 
 
-class QueryGenerator(nn.Module):
+class DynamicQueryGenerator(nn.Module):
     """
     Query Generator component.
     
@@ -73,19 +73,65 @@ class QueryGenerator(nn.Module):
         global_feature = torch.max(global_feature, dim=-1)[0]  # [batch, 1024]
         
         # Generate coarse point cloud
-        coarse_point_cloud = self.coarse_pred(global_feature).reshape(-1, self.num_query, 3)
+        coarse_coords = self.coarse_pred(global_feature).reshape(-1, self.num_query, 3)
         
         # Create query features by concatenating global feature and coordinates
         query_feature = torch.cat([
             global_feature.unsqueeze(1).expand(-1, self.num_query, -1),
-            coarse_point_cloud
+            coarse_coords
         ], dim=-1)  # [batch, num_query, 3 + 1024]
         
         # Process query features through MLP
         query_feature = self.query_conv(query_feature.transpose(1, 2))  # [batch, embed_dim, num_query]
         
-        return coarse_point_cloud, query_feature
+        return coarse_coords, query_feature
 
+
+class AdaptiveDenoisingQueryGenerator(nn.Module):
+    def __init__(self, encoder_feature_dim=384, num_query=224, bank_ratio=[1, 2]):
+        # Assert that num_query * (bank_ratio[0]/bank_ratio[1]) should be integer
+        assert (num_query * bank_ratio[0]) % bank_ratio[1] == 0, f"num_query * (bank_ratio[0]/bank_ratio[1]) must be integer. Got: {num_query * bank_ratio[0] / bank_ratio[1]}"
+        super().__init__()
+        self.encoder_feature_dim = encoder_feature_dim
+        self.num_query = num_query
+        
+        # Feature dimension increase for global representation
+        self.increase_dim = nn.Sequential(
+            nn.Conv1d(encoder_feature_dim, 1024, 1),
+            nn.BatchNorm1d(1024),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Conv1d(1024, 1024, 1)
+        )
+
+        # Coarse point cloud prediction
+        self.coarse_pred = nn.Sequential(
+            nn.Linear(1024, 1024),
+            nn.ReLU(inplace=True),
+            nn.Linear(1024, 3 * num_query)
+        )
+        
+        # Query feature processing MLP
+        self.query_conv = nn.Sequential(
+            nn.Conv1d(1024 + 3, 1024, 1),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Conv1d(1024, 1024, 1),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Conv1d(1024, encoder_feature_dim, 1)
+        )
+        
+    
+    def forward(self, encoded_features, input_coords):
+        global_feature = self.increase_dim(encoded_features)  # [batch, 1024, num_points//16]
+        global_feature = torch.max(global_feature, dim=-1)[0]  # [batch, 1024]
+        
+         # Generate coarse point cloud
+        coarse_coords = self.coarse_pred(global_feature).reshape(-1, self.num_query, 3)
+        assert input_coords.shape[1] > self.num_query * self.bank_ratio[0] / self.bank_ratio[1], f"Input coordinates must have at least {self.num_query * self.bank_ratio[0] / self.bank_ratio[1]} points, got shape: {input_coords.shape}"
+        
+        coarse_input_coords = input_coords[:, :self.num_query * self.bank_ratio[0] / self.bank_ratio[1], :]
+        
+        # Query Bank
+        
 
 if __name__ == "__main__":
     # Test the QueryGenerator component
@@ -98,7 +144,7 @@ if __name__ == "__main__":
     test_input = torch.randn(batch_size, embed_dim, num_points).to(device)
     
     # Create QueryGenerator
-    query_generator = QueryGenerator(
+    query_generator = DynamicQueryGenerator(
         embed_dim=embed_dim,
         num_query=224
     ).to(device)

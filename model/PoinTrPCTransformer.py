@@ -15,7 +15,7 @@ from timm.models.layers import trunc_normal_
 
 from model.GAEncoder import GeometryAwareTransformerEncoder
 from model.GADecoder import GeometryAwareTransformerDecoder
-from model.QueryGenerator import QueryGenerator
+from model.QueryGenerator import DynamicQueryGenerator
 
 
 
@@ -52,7 +52,7 @@ class PoinTrPCTransformer(nn.Module):
             num_heads=num_heads
         )
         
-        self.query_generator = QueryGenerator(
+        self.query_generator = DynamicQueryGenerator(
             embed_dim=embed_dim,
             num_query=num_query
         )

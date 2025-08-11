@@ -184,10 +184,12 @@ class EdgeConv(nn.Module):
 
 
 class DGCNN_Grouper(nn.Module):
-    def __init__(self, input_dim=3, output_dim=128, k_nearest_neighbors=16):
+    def __init__(self, input_dim=3, output_dim=128, downsample_divisor=[4, 16], k_nearest_neighbors=16):
         super().__init__()
         # K has to be 16
         self.input_trans = nn.Conv1d(input_dim, 8, 1)
+        self.downsample_divisor1 = downsample_divisor[0]
+        self.downsample_divisor2 = downsample_divisor[1]
         self.edge_conv1 = EdgeConv(in_channels=8, out_channels=32, k_nearest_neighbors=k_nearest_neighbors)
         self.edge_conv2 = EdgeConv(in_channels=32, out_channels=64, k_nearest_neighbors=k_nearest_neighbors)
         self.edge_conv3 = EdgeConv(in_channels=64, out_channels=64, k_nearest_neighbors=k_nearest_neighbors)
@@ -201,12 +203,12 @@ class DGCNN_Grouper(nn.Module):
         feature = self.input_trans(point_cloud) # bs 8 num_points
         
         key_coords, key_features = self.edge_conv1(coords, feature, coords, feature) # bs, [3 + 32], num_points
-        query_points = fps_downsample(torch.cat([key_coords, key_features], dim=1), num_points // 4) # bs, [3 + 32], num_points // 4
+        query_points = fps_downsample(torch.cat([key_coords, key_features], dim=1), num_points // self.downsample_divisor1) # bs, [3 + 32], num_points // 4
         query_coords, query_features = extract_coordinates_and_features(query_points)
         query_coords, query_features = self.edge_conv2(query_coords, query_features, key_coords, key_features) # bs, [3 + 64], num_points // 4
         
         key_coords, key_features = self.edge_conv3(query_coords, query_features, query_coords, query_features) # bs, [3 + 64], num_points // 16
-        query_points = fps_downsample(torch.cat([key_coords, key_features], dim=1), num_points // 16) # bs, [3 + 64], num_points // 16
+        query_points = fps_downsample(torch.cat([key_coords, key_features], dim=1), num_points // self.downsample_divisor2) # bs, [3 + 64], num_points // 16
         query_coords, query_features = extract_coordinates_and_features(query_points)
         query_coords, query_features = self.edge_conv4(query_coords, query_features, query_coords, query_features) # bs, [3 + 128], num_points // 16
         

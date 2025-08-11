@@ -8,28 +8,19 @@ from model.TransformerBlocks import (
 )
 
 class GeometryAwareTransformerEncoder(nn.Module):
-    """
-    Geometry-aware Transformer Encoder component.
-    
-    This component processes the incomplete point cloud through:
-    1. Point proxy building using DGCNN grouper
-    2. Feature encoding with position embeddings
-    3. Geometry-aware and vanilla transformer blocks
-    """
-    
     def __init__(self, in_chans=3, embed_dim=384, depth=[1, 5], num_heads=6):
         """
-        Initialize the Geometry-aware Transformer Encoder.
-        
         Args:
-            in_chans (int): Number of input channels (coordinates)
-            embed_dim (int): Embedding dimension for features
-            depth (list): List of [geom_blocks, vanilla_blocks]
-            num_heads (int): Number of attention heads
+            - in_chans (int): Number of input channels (coordinates)
+            - embed_dim (int): Embedding dimension for features
+            - depth (list): List of [geom_blocks, vanilla_blocks]
+            - num_heads (int): Number of attention heads
         """
         super().__init__()
         
         self.embed_dim = embed_dim
+        
+        self.geom_depth = depth[0]
         
         # Point cloud grouping and feature extraction
         self.grouper = DGCNN_Grouper()  # B 3 N to B C(3) N(128) and B C(128) N(128)
@@ -114,6 +105,9 @@ class GeometryAwareTransformerEncoder(nn.Module):
         
         # Geometry-aware Transformer Encoder
         for i, encoder_block in enumerate(self.encoder):
-            _, x = encoder_block(torch.cat([coords, x + pos_embed], dim=1))
+            if i < self.geom_depth:
+                x = encoder_block(coords, x + pos_embed)
+            else:
+                x = encoder_block(x + pos_embed)
         
         return coords, x

@@ -42,16 +42,16 @@ def fps_downsample(points, sample_num):
     """
     Downsample the point cloud using FPS(Furthest Point Sampling).
     Input:
-        - points: bs, [3 + feature_dim], N
+        - points: bs, [3 + feature_dim], N. feature_dim ranges from 0
         - sample_num: int, number of points to sample
     Output:
         - return: bs, [3 + feature_dim], sample_num
     """
     with torch.no_grad():
-        coords = points[:, :3] # The first 3 channels are the coordinates
+        coords = points[:, :3, :] # The first 3 channels are the coordinates
         xyz = coords.transpose(1, 2).contiguous() # b, n, 3
         fps_idx = pointnet2_utils.furthest_point_sample(xyz, sample_num)
-        new_points = pointnet2_utils.gather_operation(points, fps_idx) # Gather the features. For each center point(fps_idx), get the feature of the k nearest neighbors
+        new_points = pointnet2_utils.gather_operation(points, fps_idx) # The so called gather_operation is just picking the features according to the fps_idx
         return new_points
 
 def sinusoidal_position_encoding(coordinates, encoding_dim=64):

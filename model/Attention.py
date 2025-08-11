@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
-
+from model.DGCNN import kNNQuery
 
 class MultiHeadAttention(nn.Module):
     """
@@ -64,7 +64,11 @@ class MultiHeadAttention(nn.Module):
         
         # Apply mask if provided
         if mask is not None:
-            attention_scores = attention_scores.masked_fill(mask == 0, -1e9)
+            # 1 for mask, 0 for not mask
+            # mask shape N, N
+            mask_value = -torch.finfo(attn.dtype).max
+            mask = (mask > 0)  # convert to boolen, shape torch.BoolTensor[N, N]
+            attn = attn.masked_fill(mask, mask_value) # B h N N
         
         # Apply softmax to get attention weights
         attention_weights = F.softmax(attention_scores, dim=-1)
@@ -110,6 +114,21 @@ class MultiHeadAttention(nn.Module):
         
         return output
 
+class GraphAttention(nn.Module):
+    def __init__(self, d_model, k_neighbors=8):
+        super().__init__()
+        self.kNN_proj = nn.Sequential(
+            nn.Linear(d_model * 2, d_model),
+            nn.LeakyReLU(negative_slope=0.2)
+        )
+        self.kNNQuery = kNNQuery(k_nearest_neighbors=k_neighbors)
+    
+    def forward(self, query_coords, query_features, key_coords, key_features):
+        geom_features = self.kNNQuery(query_coords, query_features, key_coords, key_features)
+        geom_features = rearrange(geom_features, 'batch double_feature_dim num_points k -> batch k num_points double_feature_dim')
+        geom_features = self.kNN_proj(geom_features)  # [batch, k, num_points, feature_dim]
+        geom_features = geom_features.max(dim=1, keepdim=False)[0]  # [batch, num_points, feature_dim]
+        return geom_features
 
 class FeedForward(nn.Module):
     """
