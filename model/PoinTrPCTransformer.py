@@ -1,14 +1,3 @@
-"""
-PoinTrPCTransformer: Refactored Point Cloud Transformer for completion tasks.
-
-This module implements the PCTransformer architecture divided into three main components:
-1. Geometry-aware Transformer Encoder
-2. Query Generator  
-3. Geometry-aware Transformer Decoder
-
-These components are then composed together in the main PoinTrPCTransformer class.
-"""
-
 import torch
 import torch.nn as nn
 from timm.models.layers import trunc_normal_

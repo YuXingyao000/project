@@ -1,10 +1,3 @@
-"""
-Query Generator module for point cloud completion.
-
-This module implements the QueryGenerator component that generates query points
-for completion by extracting global features and creating query embeddings.
-"""
-
 import torch
 import torch.nn as nn
 
