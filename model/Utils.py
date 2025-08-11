@@ -59,13 +59,6 @@ def sinusoidal_position_encoding(coordinates, encoding_dim=64):
     Generate sinusoidal position encoding for point cloud coordinates.
     
     Reference: https://arxiv.org/pdf/2003.08934v2.pdf
-    
-    Args:
-        coordinates (torch.Tensor): Input coordinates with shape [batch, 3, num_points]
-        encoding_dim (int): Dimension of the position encoding
-        
-    Returns:
-        torch.Tensor: Position encoding with shape [batch, 6*encoding_dim, num_points]
     """
     # Normalize coordinates to [-1, 1] range, batch-wise
     coor_min = coordinates.min(dim=-1, keepdim=True)[0]
@@ -97,31 +90,17 @@ def sinusoidal_position_encoding(coordinates, encoding_dim=64):
 
 
 def extract_coordinates_and_features(points):
-    """
-    Extract coordinates and features from point cloud tensor.
-    
-    Args:
-        points (torch.Tensor): Point cloud tensor with shape [batch, 3+feature_dim, num_points]
-        
-    Returns:
-        tuple: (coordinates, features) where:
-            - coordinates: [batch, 3, num_points]
-            - features: [batch, feature_dim, num_points]
-    """
     coordinates = points[:, :3, :]
     features = points[:, 3:, :]
     return coordinates, features
 
 
 def combine_coordinates_and_features(coordinates, features):
-    """
-    Combine coordinates and features into a single point cloud tensor.
-    
-    Args:
-        coordinates (torch.Tensor): Coordinates with shape [batch, 3, num_points]
-        features (torch.Tensor): Features with shape [batch, feature_dim, num_points]
-        
-    Returns:
-        torch.Tensor: Combined point cloud with shape [batch, 3+feature_dim, num_points]
-    """
     return torch.cat([coordinates, features], dim=1) 
+
+def jitter_points(pc, std=0.01, clip=0.05):
+    # Generate noise for entire batch at once
+    jittered_data = torch.normal(mean=0.0, std=std, size=pc.shape, 
+                               dtype=pc.dtype, device=pc.device).clamp(-clip, clip)
+    pc[:, :, :3] += jittered_data
+    return pc
