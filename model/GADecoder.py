@@ -17,14 +17,14 @@ class GeometryAwareTransformerDecoder(nn.Module):
         super().__init__()
         
         self.embed_dim = embed_dim
-        
+        self.geom_depth = depth[0]
         # Transformer decoder blocks
         self.decoder = nn.ModuleList(
             [GeometryAwareCrossAttentionBlock(d_model=embed_dim, num_heads=num_heads) for _ in range(depth[0])] +
             [CrossAttentionBlock(d_model=embed_dim, num_heads=num_heads) for _ in range(depth[1])]
         )
 
-    def forward(self, query_coordinate, query_feature, key_coordinate, key_feature):
+    def forward(self, query_coordinate, query_feature, key_coordinate, key_feature, mask=None):
         """
         Args:
             query_coordinate (torch.Tensor): Query coordinates [batch, 3, num_query]
@@ -37,9 +37,13 @@ class GeometryAwareTransformerDecoder(nn.Module):
         """
         # Geometry-aware Transformer Decoder
         for i, decoder_block in enumerate(self.decoder):
-            _, query_feature = decoder_block(
-                torch.cat([query_coordinate, query_feature], dim=1), 
-                torch.cat([key_coordinate, key_feature], dim=1)
-            )
+            if i < self.geom_depth:
+                query_feature = decoder_block(
+                    query_coordinate, query_feature, key_coordinate, key_feature, mask=mask
+                )
+            else:
+                query_feature = decoder_block(
+                    query_feature, key_feature, mask=mask
+                )
         
         return query_feature

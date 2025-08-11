@@ -29,7 +29,7 @@ class SelfAttentionBlock(nn.Module):
         self.feed_forward = FeedForward(d_model, hidden_channels=d_model * 2)
         self.feed_forward_norm = nn.LayerNorm(d_model)
     
-    def forward(self, features, mask=None):
+    def forward(self, features):
         """
         Forward pass for vanilla transformer block.
         
@@ -46,7 +46,7 @@ class SelfAttentionBlock(nn.Module):
         # Self-attention
         qkv = self.qkv_proj(norm_features)  # [batch, num_points, 3*feature_dim]
         q, k, v = qkv.chunk(3, dim=-1)  # Each: [batch, num_points, feature_dim]
-        attn_features = self.multi_head_attention(q, k, v, mask=mask)  # [batch, num_points, feature_dim]
+        attn_features = self.multi_head_attention(q, k, v)  # [batch, num_points, feature_dim]
         
         # Residual connection
         features = features + attn_features  # [batch, num_points, feature_dim]
@@ -89,7 +89,7 @@ class GeometryAwareSelfAttentionBlock(nn.Module):
         # Merge attention and geometry features
         self.merge_proj = nn.Linear(d_model * 2, d_model)
         
-    def forward(self, coords, features, mask=None):
+    def forward(self, coords, features):
         """
         Forward pass for geometry-aware transformer block.
         
@@ -106,7 +106,7 @@ class GeometryAwareSelfAttentionBlock(nn.Module):
         # Self-attention
         qkv = self.qkv_proj(norm_features)  # [batch, num_points, 3*feature_dim]
         q, k, v = qkv.chunk(3, dim=-1)  # Each: [batch, num_points, feature_dim]
-        attn_features = self.multi_head_attention(q, k, v, mask=mask)  # [batch, num_points, feature_dim]
+        attn_features = self.multi_head_attention(q, k, v)  # [batch, num_points, feature_dim]
         
         # Geometry-aware features using kNN
         # Get geometry features
