@@ -163,7 +163,7 @@ class CrossAttentionBlock(nn.Module):
         self.cross_k_map = nn.Linear(d_model, d_model, bias=False)
         self.cross_v_map = nn.Linear(d_model, d_model, bias=False)
         
-    def forward(self, query_coords, query_features, key_coords, key_features, mask=None):
+    def forward(self, query_features, key_features, mask=None):
         """
         Forward pass for cross-attention block.
         
