@@ -81,12 +81,17 @@ class DynamicQueryGenerator(nn.Module):
 
 
 class AdaptiveDenoisingQueryGenerator(nn.Module):
-    def __init__(self, encoder_feature_dim=384, num_query=512, num_noised_query=64, training=True):
+    def __init__(self, encoder_feature_dim=384, num_query=512, num_noised_query=64):
+        """
+        Args:
+            encoder_feature_dim (int): Dimension of the transformer encoder features
+            num_query (int): Number of query points for completion, input query number for the transformer decoder
+            num_noised_query (int): Number of noised query points for completion
+        """
         super().__init__()
         self.encoder_feature_dim = encoder_feature_dim
         self.num_query = num_query
         self.num_noised_query = num_noised_query
-        self.training = training
         
         # Feature dimension increase for global representation
         self.increase_dim = nn.Sequential(
@@ -142,7 +147,7 @@ class AdaptiveDenoisingQueryGenerator(nn.Module):
         if self.training:
             # Auxiliary noising task
             assert self.num_noised_query < self.num_query, f"num_noised_query must be less than num_query, got: {self.num_noised_query} and {self.num_query}"
-            noised_query_coords = fps_downsample(selected_query_coords, self.num_noised_query)
+            noised_query_coords = fps_downsample(selected_query_coords.transpose(1, 2), self.num_noised_query).transpose(1, 2)
             noised_query_coords = jitter_points(noised_query_coords)
             query_coords = torch.cat([selected_query_coords, noised_query_coords], dim=1)
         else:
@@ -150,7 +155,7 @@ class AdaptiveDenoisingQueryGenerator(nn.Module):
     
         query_features = self.mlp_query(
             torch.cat([
-                global_feature.unsqueeze(1).expand(-1, query_coords.size(1), -1),
+                global_feature.unsqueeze(1).expand(-1, query_coords.shape[1], -1),
                 query_coords], dim = -1)) # b n c
 
         return query_coords, query_features

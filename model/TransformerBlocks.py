@@ -11,7 +11,7 @@ class SelfAttentionBlock(nn.Module):
     Implements a vanilla transformer block with self-attention and
     feed-forward network with residual connections.
     """
-    def __init__(self, d_model=384, num_heads=6):
+    def __init__(self, d_model=384, num_heads=6, norm_eps=1e-5):
         """
         Initialize the self-attention block.
         
@@ -20,14 +20,14 @@ class SelfAttentionBlock(nn.Module):
             num_heads (int): Number of attention heads
         """
         super().__init__()
-        self.input_norm = nn.LayerNorm(d_model)
+        self.input_norm = nn.LayerNorm(d_model, eps=norm_eps)
         self.qkv_proj = nn.Linear(d_model, d_model * 3, bias=False)
         self.multi_head_attention = MultiHeadAttention(
             d_model=d_model, 
             num_heads=num_heads
         )
         self.feed_forward = FeedForward(d_model, hidden_channels=d_model * 2)
-        self.feed_forward_norm = nn.LayerNorm(d_model)
+        self.feed_forward_norm = nn.LayerNorm(d_model, eps=norm_eps)
     
     def forward(self, features):
         """
@@ -64,7 +64,7 @@ class GeometryAwareSelfAttentionBlock(nn.Module):
     Extends the standard self-attention block with geometry-aware features
     computed using k-nearest neighbors.
     """
-    def __init__(self, d_model=384, num_heads=6, k_neighbors=8):
+    def __init__(self, d_model=384, num_heads=6, k_nearest_neighbors=8, norm_eps=1e-5):
         """
         Initialize the geometry-aware self-attention block.
         
@@ -74,17 +74,17 @@ class GeometryAwareSelfAttentionBlock(nn.Module):
             k_neighbors (int): Number of k-nearest neighbors for geometry features
         """
         super().__init__()
-        self.input_norm = nn.LayerNorm(d_model)
+        self.input_norm = nn.LayerNorm(d_model, eps=norm_eps)
         self.qkv_proj = nn.Linear(d_model, d_model * 3, bias=False)
         self.multi_head_attention = MultiHeadAttention(
             d_model=d_model, 
             num_heads=num_heads
         )
         self.feed_forward = FeedForward(d_model, hidden_channels=d_model * 2)
-        self.feed_forward_norm = nn.LayerNorm(d_model)
+        self.feed_forward_norm = nn.LayerNorm(d_model, eps=norm_eps)
         
         # Geometry-aware components
-        self.graph_attention = GraphAttention(d_model, k_neighbors=k_neighbors)
+        self.graph_attention = GraphAttention(d_model, k_nearest_neighbors=k_nearest_neighbors)
         
         # Merge attention and geometry features
         self.merge_proj = nn.Linear(d_model * 2, d_model)
@@ -132,7 +132,7 @@ class CrossAttentionBlock(nn.Module):
     Implements cross-attention between query and key points with
     separate normalization and projection layers.
     """
-    def __init__(self, d_model=384, num_heads=6, attn_drop=0., proj_drop=0.):
+    def __init__(self, d_model=384, num_heads=6, norm_eps=1e-5):
         """
         Initialize the cross-attention block.
         
@@ -143,7 +143,7 @@ class CrossAttentionBlock(nn.Module):
             proj_drop (float): Projection dropout rate
         """
         super().__init__()
-        self.input_norm = nn.LayerNorm(d_model)
+        self.input_norm = nn.LayerNorm(d_model, eps=norm_eps)
         self.qkv_proj = nn.Linear(d_model, d_model * 3, bias=False)
         self.multi_head_attention = MultiHeadAttention(
             d_model=d_model, 
@@ -154,11 +154,11 @@ class CrossAttentionBlock(nn.Module):
             num_heads=num_heads
         )
         self.feed_forward = FeedForward(d_model, hidden_channels=d_model * 2)
-        self.feed_forward_norm = nn.LayerNorm(d_model)
+        self.feed_forward_norm = nn.LayerNorm(d_model, eps=norm_eps)
         
         # Cross-attention components
-        self.cross_norm_q = nn.LayerNorm(d_model)
-        self.cross_norm_k = nn.LayerNorm(d_model)
+        self.cross_norm_q = nn.LayerNorm(d_model, eps=norm_eps)
+        self.cross_norm_k = nn.LayerNorm(d_model, eps=norm_eps)
         self.cross_q_map = nn.Linear(d_model, d_model, bias=False)
         self.cross_k_map = nn.Linear(d_model, d_model, bias=False)
         self.cross_v_map = nn.Linear(d_model, d_model, bias=False)
@@ -206,7 +206,7 @@ class GeometryAwareCrossAttentionBlock(nn.Module):
     Combines self-attention and cross-attention with geometry-aware features
     computed using k-nearest neighbors for both self and cross attention.
     """
-    def __init__(self, d_model=384, num_heads=6, k_neighbors=8):
+    def __init__(self, d_model=384, num_heads=6, k_nearest_neighbors=8, norm_eps=1e-5):
         """
         Initialize the geometry-aware cross-attention block.
         
@@ -216,7 +216,7 @@ class GeometryAwareCrossAttentionBlock(nn.Module):
             k_neighbors (int): Number of k-nearest neighbors for geometry features
         """
         super().__init__()
-        self.input_norm = nn.LayerNorm(d_model)
+        self.input_norm = nn.LayerNorm(d_model, eps=norm_eps)
         self.qkv_proj = nn.Linear(d_model, d_model * 3, bias=False)
         self.multi_head_attention = MultiHeadAttention(
             d_model=d_model, 
@@ -227,32 +227,27 @@ class GeometryAwareCrossAttentionBlock(nn.Module):
             num_heads=num_heads
         )
         self.feed_forward = FeedForward(d_model, hidden_channels=d_model * 2)
-        self.feed_forward_norm = nn.LayerNorm(d_model)
+        self.feed_forward_norm = nn.LayerNorm(d_model, eps=norm_eps)
         
         # Geometry-aware components
-        self.self_graph_attention = GraphAttention(d_model, k_neighbors=k_neighbors)
-        self.cross_graph_attention = GraphAttention(d_model, k_neighbors=k_neighbors)
+        self.self_graph_attention = GraphAttention(d_model, k_nearest_neighbors=k_nearest_neighbors)
+        self.cross_graph_attention = GraphAttention(d_model, k_nearest_neighbors=k_nearest_neighbors)
         
         self.self_merge_proj = nn.Linear(d_model * 2, d_model)
         self.cross_merge_proj = nn.Linear(d_model * 2, d_model)
         
         # Cross-attention components
-        self.cross_norm_q = nn.LayerNorm(d_model)
-        self.cross_norm_k = nn.LayerNorm(d_model)
+        self.cross_norm_q = nn.LayerNorm(d_model, eps=norm_eps)
+        self.cross_norm_k = nn.LayerNorm(d_model, eps=norm_eps)
         self.cross_q_map = nn.Linear(d_model, d_model, bias=False)
         self.cross_k_map = nn.Linear(d_model, d_model, bias=False)
         self.cross_v_map = nn.Linear(d_model, d_model, bias=False)
         
-    def forward(self, query_coords, query_features, key_coords, key_features, mask=None):
+    def forward(self, query_coords, query_features, key_coords, key_features, mask=None, denoise_length=None):
         """
         Forward pass for geometry-aware cross-attention block.
         
-        Args:
-            query_points (torch.Tensor): Query points with shape [batch, 3+feature_dim, num_query]
-            key_points (torch.Tensor): Key points with shape [batch, 3+feature_dim, num_key]
-            
-        Returns:
-            torch.Tensor: Updated query points with shape [batch, 3+feature_dim, num_query]
+        
         """
         #################################
         # Geometry-aware Self-attention #
@@ -268,7 +263,7 @@ class GeometryAwareCrossAttentionBlock(nn.Module):
         
         # Geometry-aware features using kNN
         # Get geometry features
-        geom_features = self.self_graph_attention(query_coords, norm_features.transpose(1, 2), query_coords, norm_features.transpose(1, 2))  # [batch, num_points, feature_dim]
+        geom_features = self.self_graph_attention(query_coords, norm_features.transpose(1, 2), query_coords, norm_features.transpose(1, 2), denoise_length=denoise_length)  # [batch, num_points, feature_dim]
         
         # Merge attention and geometry features
         attn_features = torch.cat([attn_features, geom_features], dim=-1)  # [batch, num_points, 2*feature_dim]

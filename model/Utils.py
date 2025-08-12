@@ -4,12 +4,12 @@ import numpy as np
 
 def knn_index(k_nearest_neighbors, source_coord, target_coord):
     """
-    Input:
-        k_nearest_neighbors: max sample number in local region
-        source_coord: all points, [B, C, M]
-        target_coord: query points, [B, C, N]
-    Return:
-        group_idx: grouped points index, [B, M, k_nearest_neighbors]
+    Args:
+        - k_nearest_neighbors (int): Max sample number in local region
+        - source_coord (torch.Tensor): All points [batch, 3, num_points]
+        - target_coord (torch.Tensor): Query points [batch, 3, num_query]
+    Returns:
+        - group_idx (torch.Tensor): Grouped points index [batch, num_points, k_nearest_neighbors]
     """
     sqrdists = square_distance(source_coord, target_coord)
     _, group_idx = torch.topk(sqrdists, k_nearest_neighbors, dim=-1, largest=False, sorted=False)
@@ -19,16 +19,12 @@ def knn_index(k_nearest_neighbors, source_coord, target_coord):
 def square_distance(source, target):
     """
     Calculate Euclid distance between each two points.
-    src^T * dst = xn * xm + yn * ym + zn * zm
-    sum(src^2, dim=-1) = xn*xn + yn*yn + zn*zn;
-    sum(dst^2, dim=-1) = xm*xm + ym*ym + zm*zm;
-    dist = (xn - xm)^2 + (yn - ym)^2 + (zn - zm)^2
-         = sum(src**2,dim=-1)+sum(dst**2,dim=-1)-2*src^T*dst
-    Input:
-        src: source points, [B, N, C]
-        dst: target points, [B, M, C]
-    Output:
-        dist: per-point square distance, [B, N, M]
+    
+    Args:
+        - source (torch.Tensor): Source points [batch, num_points, 3]
+        - target (torch.Tensor): Target points [batch, num_query, 3]
+    Returns:
+        - dist (torch.Tensor): Per-point square distance [batch, num_points, num_query]
     """
     B, _, SOURCE_NUM_POINTS = source.shape
     _, _, TARGET_NUM_POINTS = target.shape
@@ -41,16 +37,18 @@ def square_distance(source, target):
 def fps_downsample(points, sample_num):
     """
     Downsample the point cloud using FPS(Furthest Point Sampling).
-    Input:
-        - points: bs, [3 + feature_dim], N. feature_dim ranges from 0
-        - sample_num: int, number of points to sample
-    Output:
-        - return: bs, [3 + feature_dim], sample_num
+    
+    Args:
+        - points (torch.Tensor): Point cloud [batch, 3 + feature_dim, num_points]
+        - sample_num (int): Number of points to sample
+    Returns:
+        - new_points (torch.Tensor): Downsampled point cloud [batch, 3 + feature_dim, sample_num]
     """
     with torch.no_grad():
         coords = points[:, :3, :] # The first 3 channels are the coordinates
         xyz = coords.transpose(1, 2).contiguous() # b, n, 3
         fps_idx = pointnet2_utils.furthest_point_sample(xyz, sample_num)
+        points = points.contiguous()
         new_points = pointnet2_utils.gather_operation(points, fps_idx) # The so called gather_operation is just picking the features according to the fps_idx
         return new_points
 
@@ -99,7 +97,16 @@ def combine_coordinates_and_features(coordinates, features):
     return torch.cat([coordinates, features], dim=1) 
 
 def jitter_points(pc, std=0.01, clip=0.05):
-    # Generate noise for entire batch at once
+    """
+    Jitter the points in the point cloud.
+    
+    Args:
+        - pc (torch.Tensor): Point cloud [batch, num_points, 3]
+        - std (float): Standard deviation of the noise
+        - clip (float): Clipping value
+    Returns:
+        - pc (torch.Tensor): Jittered point cloud [batch, num_points, 3]
+    """
     jittered_data = torch.normal(mean=0.0, std=std, size=pc.shape, 
                                dtype=pc.dtype, device=pc.device).clamp(-clip, clip)
     pc[:, :, :3] += jittered_data

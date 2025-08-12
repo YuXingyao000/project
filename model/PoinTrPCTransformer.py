@@ -13,15 +13,13 @@ class PoinTrPCTransformer(nn.Module):
     PoinTrPCTransformer: Composed Point Cloud Transformer for completion tasks.
     
     This model combines three main components:
-    1. GeometryAwareTransformerEncoder: Processes incomplete point cloud
-    2. QueryGenerator: Generates query points for completion
-    3. GeometryAwareTransformerDecoder: Refines query points
+    1. Geometry-Aware Transformer Encoder: Processes incomplete point cloud and generates encoded point proxy
+    2. Dynamic Query Generator: Generates query proxy for completion and the coarse point cloud to complete the original point cloud
+    3. Geometry-Aware Transformer Decoder: Refines query proxy
     """
     
     def __init__(self, in_chans=3, embed_dim=384, depth=[[1, 5], [1, 7]], num_heads=6, num_query=224):
         """
-        Initialize the PoinTrPCTransformer model.
-        
         Args:
             in_chans (int): Number of input channels (coordinates)
             embed_dim (int): Embedding dimension for features
@@ -60,7 +58,7 @@ class PoinTrPCTransformer(nn.Module):
         Initialize model weights using appropriate initialization strategies.
         
         Args:
-            m (nn.Module): Module to initialize
+            - m (nn.Module): Module to initialize
         """
         if isinstance(m, nn.Linear):
             trunc_normal_(m.weight, std=.02)
@@ -77,15 +75,12 @@ class PoinTrPCTransformer(nn.Module):
 
     def forward(self, incomplete_point_cloud):
         """
-        Forward pass of the PoinTrPCTransformer.
-        
         Args:
-            incomplete_point_cloud (torch.Tensor): Input incomplete point cloud with shape [batch, num_points, 3]
+            - incomplete_point_cloud (torch.Tensor): Input incomplete point cloud with shape [batch, num_points, 3]
             
         Returns:
-            tuple: (query_features, coarse_point_cloud) where:
-                - query_features: [batch, num_query, embed_dim]
-                - coarse_point_cloud: [batch, num_query, 3]
+            - query_features (torch.Tensor): Query features [batch, num_query, embed_dim]
+            - coarse_point_cloud (torch.Tensor): Coarse point cloud [batch, num_query, 3]
         """
         # Step 1: Geometry-aware Transformer Encoder
         coords, encoded_features = self.encoder(incomplete_point_cloud)
@@ -94,7 +89,7 @@ class PoinTrPCTransformer(nn.Module):
         coarse_point_cloud, query_feature = self.query_generator(encoded_features)
         
         # Step 3: Geometry-aware Transformer Decoder
-        refined_query_feature = self.decoder(
+        refined_query_proxy = self.decoder(
             query_coordinate=coarse_point_cloud.transpose(1, 2),  # [batch, 3, num_query]
             query_feature=query_feature,                          # [batch, embed_dim, num_query]
             key_coordinate=coords,                                # [batch, 3, num_points//16]
@@ -102,7 +97,7 @@ class PoinTrPCTransformer(nn.Module):
         )
         
         # Return the final results
-        return refined_query_feature.transpose(1, 2).contiguous(), coarse_point_cloud
+        return refined_query_proxy.transpose(1, 2).contiguous(), coarse_point_cloud
 
 
 if __name__ == "__main__":

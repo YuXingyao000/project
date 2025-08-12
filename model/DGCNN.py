@@ -7,17 +7,15 @@ from model.Utils import extract_coordinates_and_features
 
 class kNNQuery(nn.Module):
     """
-    K-Nearest Neighbor Query module for point cloud processing.
+    K-Nearest Neighbor Query module for geometry-aware transformer.
     
     This module finds k-nearest neighbors and computes edge features
     by gathering neighbor information and computing local-global feature differences.
     """
     def __init__(self, k_nearest_neighbors=8):
         """
-        Initialize the kNN Query module.
-        
         Args:
-            k_nearest_neighbors (int): Number of nearest neighbors to query
+            - k_nearest_neighbors (int): Number of nearest neighbors to query
         """
         super().__init__()
         self.k_nearest_neighbors = k_nearest_neighbors
@@ -27,11 +25,11 @@ class kNNQuery(nn.Module):
         Find k-nearest neighbor indices between query and key points.
         
         Args:
-            query_coords (torch.Tensor): Query point coordinates [batch, 3, num_query]
-            key_coords (torch.Tensor): Key point coordinates [batch, 3, num_key]
+            - query_coords (torch.Tensor): Query point coordinates [batch, 3, num_query]
+            - key_coords (torch.Tensor): Key point coordinates [batch, 3, num_key]
             
         Returns:
-            torch.Tensor: Flattened indices for gathering neighbor features
+            - flattened_indices (torch.Tensor): Flattened indices for gathering neighbor features
         """
         with torch.no_grad():
             # Find k-nearest neighbors: query -> key
@@ -49,20 +47,19 @@ class kNNQuery(nn.Module):
             
         return flattened_indices
     
-    def _gather_neighbor_features(self, key_features, query_features, knn_indices):
+    def _gather_neighbor_features(self, key_features, num_query_points, knn_indices):
         """
         Gather neighbor features using k-nearest neighbor indices.
         
         Args:
-            key_features (torch.Tensor): Key point features [batch, feature_dim, num_key]
-            query_features (torch.Tensor): Query point features [batch, feature_dim, num_query]
-            knn_indices (torch.Tensor): Flattened k-nearest neighbor indices
+            - key_features (torch.Tensor): Key point features [batch, feature_dim, num_key]
+            - query_features (torch.Tensor): Query point features [batch, feature_dim, num_query]
+            - knn_indices (torch.Tensor): Flattened k-nearest neighbor indices
             
         Returns:
-            torch.Tensor: Neighbor features [batch, feature_dim, num_query, k]
+            - neighbor_features (torch.Tensor): Neighbor features [batch, feature_dim, num_query, k]
         """
         batch_size, feature_dim, num_key_points = key_features.shape
-        num_query_points = query_features.shape[2]
         
         # Reshape key features for indexing using einops
         key_features_flat = rearrange(key_features, 'batch feature_dim num_key -> (batch num_key) feature_dim')
@@ -86,11 +83,11 @@ class kNNQuery(nn.Module):
         Compute edge features by concatenating local and global information.
         
         Args:
-            neighbor_features (torch.Tensor): Neighbor features [batch, feature_dim, num_query, k]
-            query_features (torch.Tensor): Query point features [batch, feature_dim, num_query]
+            - neighbor_features (torch.Tensor): Neighbor features [batch, feature_dim, num_query, k]
+            - query_features (torch.Tensor): Query point features [batch, feature_dim, num_query]
             
         Returns:
-            torch.Tensor: Edge features [batch, 2*feature_dim, num_query, k]
+            - edge_features (torch.Tensor): Edge features [batch, 2*feature_dim, num_query, k]
         """
         # Expand query features to match neighbor features shape
         query_features_expanded = repeat(
@@ -107,26 +104,43 @@ class kNNQuery(nn.Module):
         
         return edge_features
     
-    def forward(self, query_coords, query_features, key_coords, key_features):
+    def forward(self, query_coords, query_features, key_coords, key_features, denoise_length=None):
         """
         Forward pass of kNN Query.
         
         Args:
-            query (torch.Tensor): Query points with shape [batch, channels, num_query]
-            key (torch.Tensor): Key points with shape [batch, channels, num_key]
-                               Both inputs have coordinates in first 3 channels
+            - query_coords (torch.Tensor): Query point coordinates [batch, 3, num_query]
+            - query_features (torch.Tensor): Query point features [batch, feature_dim, num_query]
+            - key_coords (torch.Tensor): Key point coordinates [batch, 3, num_key]
+            - key_features (torch.Tensor): Key point features [batch, feature_dim, num_key]
+            - denoise_length (int, optional): Length of the denoised query points. Defaults to None. This is used for noising auxiliary task.
                                
         Returns:
-            torch.Tensor: Edge features with shape [batch, 2*feature_dim, num_query, k]
+            - edge_features (torch.Tensor): Edge features with shape [batch, 2*feature_dim, num_query, k]
         """
-        # Find k-nearest neighbors
-        knn_indices = self._find_knn_indices(query_coords, key_coords)
+        assert len(query_coords.shape) == 3 and query_coords.shape[1] == 3, f"Query coordinates must have shape [batch, 3, num_query], got {query_coords.shape}"
+        assert len(key_coords.shape) == 3 and key_coords.shape[1] == 3, f"Key coordinates must have shape [batch, 3, num_key], got {key_coords.shape}"
         
-        # Gather neighbor features
-        neighbor_features = self._gather_neighbor_features(key_features, query_features, knn_indices)
-        
-        # Compute edge features
-        edge_features = self._compute_edge_features(neighbor_features, query_features)
+        if denoise_length is None:
+            # Find k-nearest neighbors
+            knn_indices = self._find_knn_indices(query_coords, key_coords)
+
+            # Gather neighbor features
+            num_query_points = query_coords.shape[2]
+            neighbor_features = self._gather_neighbor_features(key_features, num_query_points, knn_indices)
+
+            # Compute edge features
+            edge_features = self._compute_edge_features(neighbor_features, query_features)
+        else:
+            knn_indices_raw = self._find_knn_indices(query_coords[:, :, :-denoise_length], key_coords[:, :, :-denoise_length])
+            knn_indices_noised = self._find_knn_indices(query_coords[:, :, -denoise_length:], key_coords)
+            
+            num_query_points_raw = query_coords.shape[2] - denoise_length
+            neighbor_features_raw = self._gather_neighbor_features(key_features[:, :, :-denoise_length], num_query_points_raw, knn_indices_raw)
+            neighbor_features_noised = self._gather_neighbor_features(key_features, denoise_length, knn_indices_noised)
+            
+            mix_neighbor_features = torch.cat([neighbor_features_raw, neighbor_features_noised], dim=-2)
+            edge_features = self._compute_edge_features(mix_neighbor_features, query_features)
         
         return edge_features
 
@@ -138,15 +152,15 @@ class EdgeConv(nn.Module):
     This module computes edge features by finding k-nearest neighbors and
     aggregating local geometric information around each point through
     convolution followed by max pooling.
+    
+    Ref: https://arxiv.org/abs/1801.07829
     """
     def __init__(self, in_channels, out_channels, k_nearest_neighbors=16):
         """
-        Initialize the Edge Convolution module.
-        
         Args:
-            in_channels (int): Number of input feature channels
-            out_channels (int): Number of output feature channels
-            k_nearest_neighbors (int): Number of nearest neighbors to consider
+            - in_channels (int): Number of input feature channels
+            - out_channels (int): Number of output feature channels
+            - k_nearest_neighbors (int): Number of nearest neighbors to consider
         """
         super().__init__()
         self.k_nearest_neighbors = k_nearest_neighbors
@@ -162,12 +176,14 @@ class EdgeConv(nn.Module):
         Forward pass of Edge Convolution.
         
         Args:
-            query (torch.Tensor): Query points with shape [batch, channels, num_query_points]
-            key (torch.Tensor): Key points with shape [batch, channels, num_key_points]
-                               Both inputs have coordinates in first 3 channels
+            - query_coords (torch.Tensor): Query point coordinates [batch, 3, num_query]
+            - query_features (torch.Tensor): Query point features [batch, feature_dim, num_query]
+            - key_coords (torch.Tensor): Key point coordinates [batch, 3, num_key]
+            - key_features (torch.Tensor): Key point features [batch, feature_dim, num_key]
                                
         Returns:
-            torch.Tensor: Output features with coordinates and processed edge features
+            - query_coords (torch.Tensor): Query point coordinates [batch, 3, num_query]
+            - edge_features (torch.Tensor): Edge features [batch, out_channels, num_query, k]
         """
         edge_features = self.kNNQuery(query_coords, query_features, key_coords, key_features)
         
@@ -184,19 +200,37 @@ class EdgeConv(nn.Module):
 
 
 class DGCNN_Grouper(nn.Module):
-    def __init__(self, input_dim=3, output_dim=128, downsample_divisor=[4, 16], k_nearest_neighbors=16):
+    """
+    This is a light-weight DGCNNgrouper that groups points into a proxy.
+    
+    Args:
+        - input_dim (int): Number of input feature channels
+        - output_dim (int): Number of output feature channels
+        - grouper_downsample (list): Downsample divisor for the grouper
+        - k_nearest_neighbors (int): Number of nearest neighbors to consider
+    """
+    def __init__(self, input_dim=3, output_dim=128, grouper_downsample=[4, 16], k_nearest_neighbors=16):
         super().__init__()
-        # K has to be 16
         self.input_trans = nn.Conv1d(input_dim, 8, 1)
-        self.downsample_divisor1 = downsample_divisor[0]
-        self.downsample_divisor2 = downsample_divisor[1]
+        self.downsample_divisor1 = grouper_downsample[0]
+        self.downsample_divisor2 = grouper_downsample[1]
         self.edge_conv1 = EdgeConv(in_channels=8, out_channels=32, k_nearest_neighbors=k_nearest_neighbors)
         self.edge_conv2 = EdgeConv(in_channels=32, out_channels=64, k_nearest_neighbors=k_nearest_neighbors)
         self.edge_conv3 = EdgeConv(in_channels=64, out_channels=64, k_nearest_neighbors=k_nearest_neighbors)
         self.edge_conv4 = EdgeConv(in_channels=64, out_channels=output_dim, k_nearest_neighbors=k_nearest_neighbors)
         
     def forward(self, point_cloud):
-        # point_cloud: bs, 3, num_points
+        """
+        Forward pass of DGCNN_Grouper.
+        
+        Args:
+            - point_cloud (torch.Tensor): Point cloud [batch, 3, num_points]
+        
+        Returns:
+            - query_coords (torch.Tensor): Query point coordinates [batch, 3, num_points // downsample_divisor2]
+            - query_features (torch.Tensor): Query point features [batch, output_dim, num_points // downsample_divisor2]
+        """
+        assert len(point_cloud.shape) == 3 and point_cloud.shape[1] == 3, f"Point cloud must have shape [batch, 3, num_points], got {point_cloud.shape}"
         
         num_points = point_cloud.shape[2]
         coords = point_cloud # bs 3 num_points

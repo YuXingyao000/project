@@ -8,18 +8,22 @@ from model.TransformerBlocks import (
 )
 
 class GeometryAwareTransformerEncoder(nn.Module):
-    def __init__(self, in_chans=3, embed_dim=384, depth=[1, 5], downsample_divisor=[4, 16], grouper_feature_dim=128, grouper_k_nearest_neighbors=16, num_heads=6):
+    def __init__(self, in_chans=3, embed_dim=384, num_heads=6, depth=[1, 5], grouper_downsample=[4, 16], grouper_k_nearest_neighbors=16, attention_k_nearest_neighbors=8, norm_eps=1e-5):
         """
         Args:
             - in_chans (int): Number of input channels (coordinates)
             - embed_dim (int): Embedding dimension for features
-            - depth (list): List of [geom_blocks, vanilla_blocks]
-            - downsample_divisor (list): downsample divisor for input proxy
-            - grouper_feature_dim (int): Feature dimension for input proxy
-            - grouper_k_nearest_neighbors (int): Number of nearest neighbors to group points for input proxy
             - num_heads (int): Number of attention heads
+            - depth (list): List of [geom_blocks, vanilla_blocks]
+            - grouper_downsample (list): downsample divisor for the grouper to generate input proxy
+            - grouper_k_nearest_neighbors (int): Number of nearest neighbors to use for the grouper
+            - attention_k_nearest_neighbors (int): Number of nearest neighbors to use for attention blocks
+            - norm_eps (float): Epsilon for layer normalization
         """
         super().__init__()
+        
+        assert len(depth) == 2, f"depth must be a list of two elements, got {depth}"
+        assert len(grouper_downsample) == 2, f"grouper_downsample must be a list of two elements, got {grouper_downsample}"
         
         self.embed_dim = embed_dim
         
@@ -28,8 +32,7 @@ class GeometryAwareTransformerEncoder(nn.Module):
         # Point cloud grouping and feature extraction
         self.grouper = DGCNN_Grouper(
             input_dim=in_chans, 
-            output_dim=grouper_feature_dim, 
-            downsample_divisor=downsample_divisor, 
+            grouper_downsample=grouper_downsample, 
             k_nearest_neighbors=grouper_k_nearest_neighbors
             )  # B 3 N to B C(3) N(128) and B C(128) N(128)
 
@@ -51,8 +54,8 @@ class GeometryAwareTransformerEncoder(nn.Module):
 
         # Transformer encoder blocks
         self.encoder = nn.ModuleList(
-            [GeometryAwareSelfAttentionBlock(d_model=embed_dim, num_heads=num_heads) for _ in range(depth[0])] +
-            [SelfAttentionBlock(d_model=embed_dim, num_heads=num_heads) for _ in range(depth[1])]
+            [GeometryAwareSelfAttentionBlock(d_model=embed_dim, num_heads=num_heads, k_nearest_neighbors=attention_k_nearest_neighbors, norm_eps=norm_eps) for _ in range(depth[0])] +
+            [SelfAttentionBlock(d_model=embed_dim, num_heads=num_heads, norm_eps=norm_eps) for _ in range(depth[1])]
         )
 
     def _build_input_proxy(self, incomplete_point_cloud):
@@ -60,12 +63,11 @@ class GeometryAwareTransformerEncoder(nn.Module):
         Build point input proxy from incomplete point cloud.
         
         Args:
-            incomplete_point_cloud (torch.Tensor): Input incomplete point cloud [batch, num_points, 3]
+            - incomplete_point_cloud (torch.Tensor): Input incomplete point cloud [batch, num_points, 3]
             
         Returns:
-            tuple: (coordinates, features) where:
-                - coordinates: [batch, 3, num_points//[downsample_divisor[0]]]
-                - features: [batch, grouper_feature_dim, num_points//downsample_divisor[1]]
+            - coordinates: [batch, 3, num_points//[grouper_downsample[0]]]
+            - features: [batch, grouper_feature_dim, num_points//grouper_downsample[1]]
         """
         # Group points and extract features
         coords, features = self.grouper(incomplete_point_cloud.transpose(1, 2).contiguous())
@@ -77,13 +79,12 @@ class GeometryAwareTransformerEncoder(nn.Module):
         Encode point features with position embedding.
         
         Args:
-            coords (torch.Tensor): Point coordinates [batch, 3, num_points]
-            features (torch.Tensor): Point features [batch, feature_dim, num_points]
+            - coords (torch.Tensor): Point coordinates [batch, 3, num_points]
+            - features (torch.Tensor): Point features [batch, feature_dim, num_points]
             
         Returns:
-            tuple: (pos_embed, input_features) where:
-                - pos_embed: [batch, embed_dim, num_points]
-                - input_features: [batch, embed_dim, num_points]
+            - pos_embed: [batch, embed_dim, num_points]
+            - input_features: [batch, embed_dim, num_points]
         """
         # Generate position embedding
         pos_embed = self.pos_embed(coords)  # [batch, embed_dim, num_points]
@@ -98,12 +99,11 @@ class GeometryAwareTransformerEncoder(nn.Module):
         Forward pass of the Geometry-aware Transformer Encoder.
         
         Args:
-            incomplete_point_cloud (torch.Tensor): Input incomplete point cloud [batch, num_points, 3]
+            - incomplete_point_cloud (torch.Tensor): Input incomplete point cloud [batch, num_points, 3]
             
         Returns:
-            tuple: (coords, encoded_features) where:
-                - coords: [batch, 3, num_points//16]
-                - encoded_features: [batch, embed_dim, num_points//16]
+            - coords: [batch, 3, num_points//grouper_downsample[1]]
+            - encoded_features: [batch, embed_dim, num_points//grouper_downsample[1]]
         """
         # Build point proxy from the partial point cloud
         coords, features = self._build_input_proxy(incomplete_point_cloud)

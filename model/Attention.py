@@ -13,20 +13,15 @@ from model.DGCNN import kNNQuery
 
 class MultiHeadAttention(nn.Module):
     """
-    Multi-head attention mechanism for point cloud processing.
-    
-    This module implements scaled dot-product attention with multiple heads,
-    taking separate Q, K, V inputs for flexibility in self-attention and cross-attention.
+    Standard multi-head attention module.
     """
     def __init__(self, d_model, num_heads=8, attn_drop=0., proj_drop=0.):
         """
-        Initialize the attention module.
-        
         Args:
-            d_model (int): Input and output feature dimension
-            num_heads (int): Number of attention heads
-            attn_drop (float): Dropout rate for attention weights
-            proj_drop (float): Dropout rate for output projection
+            - d_model (int): Input and output feature dimension
+            - num_heads (int): Number of attention heads
+            - attn_drop (float): Dropout rate for attention weights
+            - proj_drop (float): Dropout rate for output projection
         """
         super().__init__()
         assert d_model % num_heads == 0, f"d_model ({d_model}) must be divisible by num_heads ({num_heads})"
@@ -48,13 +43,13 @@ class MultiHeadAttention(nn.Module):
         Compute attention weights and apply them to values.
         
         Args:
-            query (torch.Tensor): Query tensor of shape [batch, heads, seq_len, head_dim]
-            key (torch.Tensor): Key tensor of shape [batch, heads, seq_len, head_dim]
-            value (torch.Tensor): Value tensor of shape [batch, heads, seq_len, head_dim]
-            mask (torch.Tensor, optional): Attention mask
+            - query (torch.Tensor): Query tensor of shape [batch, heads, seq_len, head_dim]
+            - key (torch.Tensor): Key tensor of shape [batch, heads, seq_len, head_dim]
+            - value (torch.Tensor): Value tensor of shape [batch, heads, seq_len, head_dim]
+            - mask (torch.Tensor, optional): Attention mask
             
         Returns:
-            torch.Tensor: Attention output of shape [batch, heads, seq_len, head_dim]
+            - attention_output (torch.Tensor): Attention output of shape [batch, heads, seq_len, head_dim]
         """
         # Compute attention scores: Q * K^T
         attention_scores = torch.einsum('b h i d, b h j d -> b h i j', query, key)
@@ -66,9 +61,9 @@ class MultiHeadAttention(nn.Module):
         if mask is not None:
             # 1 for mask, 0 for not mask
             # mask shape N, N
-            mask_value = -torch.finfo(attn.dtype).max
+            mask_value = -torch.finfo(attention_scores.dtype).max
             mask = (mask > 0)  # convert to boolen, shape torch.BoolTensor[N, N]
-            attn = attn.masked_fill(mask, mask_value) # B h N N
+            attention_scores = attention_scores.masked_fill(mask, mask_value) # B h N N
         
         # Apply softmax to get attention weights
         attention_weights = F.softmax(attention_scores, dim=-1)
@@ -84,13 +79,13 @@ class MultiHeadAttention(nn.Module):
         Forward pass of the attention mechanism.
         
         Args:
-            q (torch.Tensor): Query tensor of shape [batch_size, seq_len, d_model]
-            k (torch.Tensor): Key tensor of shape [batch_size, seq_len, d_model]
-            v (torch.Tensor): Value tensor of shape [batch_size, seq_len, d_model]
-            mask (torch.Tensor, optional): Attention mask
+            - q (torch.Tensor): Query tensor of shape [batch_size, seq_len, d_model]
+            - k (torch.Tensor): Key tensor of shape [batch_size, seq_len, d_model]
+            - v (torch.Tensor): Value tensor of shape [batch_size, seq_len, d_model]
+            - mask (torch.Tensor, optional): Attention mask
             
         Returns:
-            torch.Tensor: Output tensor of shape [batch_size, seq_len, d_model]
+            - output (torch.Tensor): Output tensor of shape [batch_size, seq_len, d_model]
         """
         # Step 1: Reshape Q, K, V for multi-head attention
         # Rearrange: [batch, seq, d_model] -> [batch, heads, seq, d_k]
@@ -115,16 +110,37 @@ class MultiHeadAttention(nn.Module):
         return output
 
 class GraphAttention(nn.Module):
-    def __init__(self, d_model, k_neighbors=8):
+    """
+    Graph Attention Module.
+    
+    This is the key where PoinTr integrates geometry information.
+    """
+    def __init__(self, d_model, k_nearest_neighbors=8):
+        """
+        Args:
+            - d_model (int): Input and output feature dimension
+            - k_nearest_neighbors (int): Number of nearest neighbors to consider
+        """
         super().__init__()
         self.kNN_proj = nn.Sequential(
             nn.Linear(d_model * 2, d_model),
             nn.LeakyReLU(negative_slope=0.2)
         )
-        self.kNNQuery = kNNQuery(k_nearest_neighbors=k_neighbors)
+        self.kNNQuery = kNNQuery(k_nearest_neighbors=k_nearest_neighbors)
     
-    def forward(self, query_coords, query_features, key_coords, key_features):
-        geom_features = self.kNNQuery(query_coords, query_features, key_coords, key_features)
+    def forward(self, query_coords, query_features, key_coords, key_features, denoise_length=None):
+        """
+        Args:
+            - query_coords (torch.Tensor): Query point coordinates [batch, 3, num_query]
+            - query_features (torch.Tensor): Query point features [batch, feature_dim, num_query]
+            - key_coords (torch.Tensor): Key point coordinates [batch, 3, num_points]
+            - key_features (torch.Tensor): Key point features [batch, feature_dim, num_points]
+            - denoise_length (int, optional): Length of the denoised query points. Defaults to None. This is used for noising auxiliary task.
+        
+        Returns:
+            - geom_features (torch.Tensor): Geometry features [batch, num_points, feature_dim]
+        """
+        geom_features = self.kNNQuery(query_coords, query_features, key_coords, key_features, denoise_length=denoise_length)
         geom_features = rearrange(geom_features, 'batch double_feature_dim num_points k -> batch k num_points double_feature_dim')
         geom_features = self.kNN_proj(geom_features)  # [batch, k, num_points, feature_dim]
         geom_features = geom_features.max(dim=1, keepdim=False)[0]  # [batch, num_points, feature_dim]
@@ -132,19 +148,14 @@ class GraphAttention(nn.Module):
 
 class FeedForward(nn.Module):
     """
-    Feed-forward network with residual connection.
-    
-    Standard feed-forward network used in transformer blocks with
-    two linear layers and a GELU activation function.
+    Standard feed-forward network with residual connection.
     """
     def __init__(self, in_channels, hidden_channels=None, dropout_rate=0.0):
         """
-        Initialize the feed-forward network.
-        
         Args:
-            in_channels (int): Input feature dimension
-            hidden_channels (int, optional): Hidden layer dimension. Defaults to 2 * in_channels
-            dropout_rate (float): Dropout rate for regularization
+            - in_channels (int): Input feature dimension
+            - hidden_channels (int, optional): Hidden layer dimension. Defaults to 2 * in_channels
+            - dropout_rate (float): Dropout rate for regularization
         """
         super().__init__()
         hidden_channels = hidden_channels if hidden_channels is not None else in_channels * 2
@@ -156,13 +167,11 @@ class FeedForward(nn.Module):
 
     def forward(self, x):
         """
-        Forward pass through the feed-forward network.
-        
         Args:
-            x (torch.Tensor): Input tensor of shape [batch_size, seq_len, in_channels]
+            - x (torch.Tensor): Input tensor of shape [batch_size, seq_len, in_channels]
             
         Returns:
-            torch.Tensor: Output tensor of shape [batch_size, seq_len, in_channels]
+            - output (torch.Tensor): Output tensor of shape [batch_size, seq_len, in_channels]
         """
         x = self.fc1(x)
         x = self.act(x)

@@ -18,7 +18,7 @@ class AdaPoinTrPCTransformer(nn.Module):
     3. GeometryAwareTransformerDecoder: Refines query points
     """
     
-    def __init__(self, in_chans=3, embed_dim=384, depth=[[1, 5], [1, 7]], num_heads=6, grouper_k_nearest_neighbors=16, downsample_divisor=[4, 8], num_query=224, num_noised_query=64, training=True):
+    def __init__(self, in_chans=3, embed_dim=384, encoder_depth=[1, 5], decoder_depth=[1, 7], num_heads=6, grouper_k_nearest_neighbors=16, grouper_downsample=[4, 8], attention_k_nearest_neighbors=8, num_query=512, num_noised_query=64, norm_eps=1e-6):
         """
         Initialize the PoinTrPCTransformer model.
         
@@ -32,28 +32,34 @@ class AdaPoinTrPCTransformer(nn.Module):
         super().__init__()
 
         self.num_features = self.embed_dim = embed_dim
+        self.num_noised_query = num_noised_query
+        self.mask = torch.zeros(num_query + num_noised_query, num_query + num_noised_query)
+        self.mask[:-self.num_noised_query, -self.num_noised_query:] = 1 # 1 means no attention
         
         # Initialize the three main components
         self.encoder = GeometryAwareTransformerEncoder(
             in_chans=in_chans,
             embed_dim=embed_dim,
-            depth=depth[0],
+            depth=encoder_depth,
             num_heads=num_heads,
-            downsample_divisor=downsample_divisor,
-            grouper_k_nearest_neighbors=grouper_k_nearest_neighbors
+            grouper_downsample=grouper_downsample,
+            grouper_k_nearest_neighbors=grouper_k_nearest_neighbors,
+            attention_k_nearest_neighbors=attention_k_nearest_neighbors,
+            norm_eps=norm_eps
         )
         
         self.query_generator = AdaptiveDenoisingQueryGenerator(
             encoder_feature_dim=embed_dim,
             num_query=num_query,
             num_noised_query=num_noised_query,
-            training=training
         )
         
         self.decoder = GeometryAwareTransformerDecoder(
             embed_dim=embed_dim,
-            depth=depth[1],
-            num_heads=num_heads
+            depth=decoder_depth,
+            num_heads=num_heads,
+            attention_k_nearest_neighbors=attention_k_nearest_neighbors,
+            norm_eps=norm_eps
         )
 
         # Initialize weights
@@ -84,14 +90,17 @@ class AdaPoinTrPCTransformer(nn.Module):
         coords, encoded_features = self.encoder(incomplete_point_cloud)
         
         # Step 2: Query Generator
-        coarse_point_cloud, query_feature = self.query_generator(encoded_features)
+        coarse_point_cloud, query_feature = self.query_generator(encoded_features, incomplete_point_cloud)
         
+        mask = self.mask.to(query_feature.device)
         # Step 3: Geometry-aware Transformer Decoder
         refined_query_feature = self.decoder(
             query_coordinate=coarse_point_cloud.transpose(1, 2),  # [batch, 3, num_query]
-            query_feature=query_feature,                          # [batch, embed_dim, num_query]
+            query_feature=query_feature.transpose(1, 2),          # [batch, num_query, embed_dim]
             key_coordinate=coords,                                # [batch, 3, num_points//16]
-            key_feature=encoded_features                          # [batch, embed_dim, num_points//16]
+            key_feature=encoded_features,                         # [batch, embed_dim, num_points//16]
+            mask=mask,
+            denoise_length=self.num_noised_query
         )
         
         # Return the final results
@@ -108,12 +117,18 @@ if __name__ == "__main__":
     test_input = torch.randn(batch_size, num_points, 3).to(device)
     
     # Create model
-    model = PoinTrPCTransformer(
+    model = AdaPoinTrPCTransformer(
         in_chans=3, 
         embed_dim=384, 
-        depth=[[1, 5], [1, 7]], 
+        encoder_depth=[1, 5], 
+        decoder_depth=[1, 7],
         num_heads=6, 
-        num_query=224
+        grouper_k_nearest_neighbors=16,
+        grouper_downsample=[4, 8],
+        attention_k_nearest_neighbors=8,
+        num_query=512,
+        num_noised_query=64,
+        norm_eps=1e-6
     ).to(device)
     
     # Test forward pass
