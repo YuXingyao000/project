@@ -102,14 +102,19 @@ class GeometryAwareTransformerEncoder(nn.Module):
             - incomplete_point_cloud (torch.Tensor): Input incomplete point cloud [batch, num_points, 3]
             
         Returns:
-            - coords: [batch, 3, num_points//grouper_downsample[1]]
-            - encoded_features: [batch, embed_dim, num_points//grouper_downsample[1]]
+            - coords: [batch, num_points//grouper_downsample[1], 3]
+            - encoded_features: [batch, num_points//grouper_downsample[1], embed_dim]
         """
         # Build point proxy from the partial point cloud
         coords, features = self._build_input_proxy(incomplete_point_cloud)
         
         # Encode input proxy
         pos_embed, x = self._encode_input_proxy(coords, features)
+        
+        # API fitting
+        pos_embed = pos_embed.transpose(1, 2)
+        x = x.transpose(1, 2)
+        coords = coords.transpose(1, 2)
         
         # Geometry-aware Transformer Encoder
         for i, encoder_block in enumerate(self.encoder):

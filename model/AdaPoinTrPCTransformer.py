@@ -92,19 +92,25 @@ class AdaPoinTrPCTransformer(nn.Module):
         # Step 2: Query Generator
         coarse_point_cloud, query_feature = self.query_generator(encoded_features, incomplete_point_cloud)
         
-        mask = self.mask.to(query_feature.device)
+        if self.training:
+            mask = self.mask.to(query_feature.device)
+            denoise_length = self.num_noised_query
+        else:
+            mask = None
+            denoise_length = None
+        
         # Step 3: Geometry-aware Transformer Decoder
         refined_query_feature = self.decoder(
-            query_coordinate=coarse_point_cloud.transpose(1, 2),  # [batch, 3, num_query]
-            query_feature=query_feature.transpose(1, 2),          # [batch, num_query, embed_dim]
-            key_coordinate=coords,                                # [batch, 3, num_points//16]
-            key_feature=encoded_features,                         # [batch, embed_dim, num_points//16]
+            query_coordinate=coarse_point_cloud,                  # [batch, num_query, 3]
+            query_feature=query_feature,                          # [batch, num_query, embed_dim]
+            key_coordinate=coords,                                # [batch, num_points//16, 3]
+            key_feature=encoded_features,                         # [batch, num_points//16, embed_dim]
             mask=mask,
-            denoise_length=self.num_noised_query
+            denoise_length=denoise_length
         )
         
         # Return the final results
-        return refined_query_feature.transpose(1, 2).contiguous(), coarse_point_cloud
+        return refined_query_feature, coarse_point_cloud
 
 
 if __name__ == "__main__":
@@ -132,6 +138,7 @@ if __name__ == "__main__":
     ).to(device)
     
     # Test forward pass
+    model.eval()
     with torch.no_grad():
         query_features, coarse_point_cloud = model(test_input)
         print(f"Input shape: {test_input.shape}")
@@ -144,13 +151,15 @@ if __name__ == "__main__":
         coords, encoded_features = model.encoder(test_input)
         print(f"Encoder output - coords: {coords.shape}, encoded_features: {encoded_features.shape}")
         
-        coarse_points, query_feat = model.query_generator(encoded_features)
+        coarse_points, query_feat = model.query_generator(encoded_features, test_input)
         print(f"Query Generator output - coarse_points: {coarse_points.shape}, query_feat: {query_feat.shape}")
         
         refined_query = model.decoder(
-            query_coordinate=coarse_points.transpose(1, 2),
+            query_coordinate=coarse_points,
             query_feature=query_feat,
             key_coordinate=coords,
-            key_feature=encoded_features
+            key_feature=encoded_features,
+            mask=None,
+            denoise_length=None
         )
         print(f"Decoder output - refined_query: {refined_query.shape}") 

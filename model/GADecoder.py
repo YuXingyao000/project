@@ -29,10 +29,10 @@ class GeometryAwareTransformerDecoder(nn.Module):
     def forward(self, query_coordinate, query_feature, key_coordinate, key_feature, mask=None, denoise_length=None):
         """
         Args:
-            - query_coordinate (torch.Tensor): Query coordinates [batch, 3, num_query]
-            - query_feature (torch.Tensor): Query features [batch, embed_dim, num_query]
-            - key_coordinate (torch.Tensor): Key coordinates [batch, 3, num_points]
-            - key_feature (torch.Tensor): Key features [batch, embed_dim, num_points]
+            - query_coordinate (torch.Tensor): Query coordinates [batch, num_query, 3]
+            - query_feature (torch.Tensor): Query features [batch, num_query, embed_dim]
+            - key_coordinate (torch.Tensor): Key coordinates [batch, num_points, 3]
+            - key_feature (torch.Tensor): Key features [batch, num_points, embed_dim]
             
         Returns:
             - query_feature (torch.Tensor): Query features [batch, embed_dim, num_query]

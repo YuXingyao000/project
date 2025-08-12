@@ -121,6 +121,9 @@ class kNNQuery(nn.Module):
         assert len(query_coords.shape) == 3 and query_coords.shape[1] == 3, f"Query coordinates must have shape [batch, 3, num_query], got {query_coords.shape}"
         assert len(key_coords.shape) == 3 and key_coords.shape[1] == 3, f"Key coordinates must have shape [batch, 3, num_key], got {key_coords.shape}"
         
+        assert query_coords.shape[-1] == query_features.shape[-1], f"Query coordinates and query features must have the same number of points, got {query_coords.shape[-1]} and {query_features.shape[-1]}"
+        assert key_coords.shape[-1] == key_features.shape[-1], f"Key coordinates and key features must have the same number of points, got {key_coords.shape[-1]} and {key_features.shape[-1]}"
+        
         if denoise_length is None:
             # Find k-nearest neighbors
             knn_indices = self._find_knn_indices(query_coords, key_coords)
@@ -185,6 +188,12 @@ class EdgeConv(nn.Module):
             - query_coords (torch.Tensor): Query point coordinates [batch, 3, num_query]
             - edge_features (torch.Tensor): Edge features [batch, out_channels, num_query, k]
         """
+        assert len(query_coords.shape) == 3 and query_coords.shape[1] == 3, f"Query coordinates must have shape [batch, 3, num_query], got {query_coords.shape}"
+        assert len(key_coords.shape) == 3 and key_coords.shape[1] == 3, f"Key coordinates must have shape [batch, 3, num_key], got {key_coords.shape}"
+        
+        assert query_coords.shape[-1] == query_features.shape[-1], f"Query coordinates and query features must have the same number of points, got {query_coords.shape[-1]} and {query_features.shape[-1]}"
+        assert key_coords.shape[-1] == key_features.shape[-1], f"Key coordinates and key features must have the same number of points, got {key_coords.shape[-1]} and {key_features.shape[-1]}"
+        
         edge_features = self.kNNQuery(query_coords, query_features, key_coords, key_features)
         
         # Process edge features through convolution layers

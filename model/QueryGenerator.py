@@ -128,12 +128,23 @@ class AdaptiveDenoisingQueryGenerator(nn.Module):
         
     
     def forward(self, encoded_features, input_coords):
-        global_feature = self.increase_dim(encoded_features)  # [batch, 1024, num_query]
+        """
+        Forward pass of the Adaptive Denoising Query Generator.
+        
+        Args:
+            - encoded_features (torch.Tensor): Encoded features from encoder [batch, num_features, feature_dim]
+            - input_coords (torch.Tensor): Input coordinates [batch, num_points, 3]
+            
+        Returns:
+            - query_coords (torch.Tensor): Query coordinates [batch, num_query, 3]
+            - query_features (torch.Tensor): Query features [batch, num_query, embed_dim]
+        """
+        assert input_coords.shape[1] > self.num_query // 2, f"Input coordinates must have at least {self.num_query // 2} points, got shape: {input_coords.shape}"
+        global_feature = self.increase_dim(encoded_features.transpose(1, 2))  # [batch, 1024, num_query]
         global_feature = torch.max(global_feature, dim=-1)[0]  # [batch, 1024]
         
          # Generate coarse point cloud
         coarse_coords = self.coarse_pred(global_feature).reshape(-1, self.num_query, 3)
-        assert input_coords.shape[1] > self.num_query // 2, f"Input coordinates must have at least {self.num_query // 2} points, got shape: {input_coords.shape}"
         
         # Query Bank
         coarse_input_coords = fps_downsample(input_coords.transpose(1, 2), self.num_query // 2).transpose(1, 2)
@@ -141,7 +152,7 @@ class AdaptiveDenoisingQueryGenerator(nn.Module):
         
         # Query selection
         query_scores = self.score_ranking(query_coords_bank)
-        rank = torch.argsort(query_scores, dim=1, descending=True) # b n 1
+        rank = torch.argsort(query_scores, dim=1, descending=True)
         selected_query_coords = torch.gather(query_coords_bank, 1, rank[:,:self.num_query].expand(-1, -1, 3))
         
         if self.training:
@@ -156,7 +167,7 @@ class AdaptiveDenoisingQueryGenerator(nn.Module):
         query_features = self.mlp_query(
             torch.cat([
                 global_feature.unsqueeze(1).expand(-1, query_coords.shape[1], -1),
-                query_coords], dim = -1)) # b n c
+                query_coords], dim = -1))
 
         return query_coords, query_features
     
