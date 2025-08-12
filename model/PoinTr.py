@@ -66,7 +66,16 @@ class PoinTr(nn.Module):
         self.global_feature_dim = 1024
 
         self.fold_step = int(pow(self.num_pred//self.num_query, 0.5) + 0.5)
-        self.base_model = PoinTrPCTransformer(in_chans=3, embed_dim=self.trans_dim, depth=[[1, 5], [1, 7]], num_heads=6, num_query=self.num_query)
+        self.base_model = PoinTrPCTransformer(in_chans=3,
+                                              embed_dim=self.trans_dim,
+                                              num_heads=6,
+                                              num_query=self.num_query,
+                                              encoder_depth=[1, 5],
+                                              decoder_depth=[1, 7],
+                                              grouper_downsample=[4, 16],
+                                              grouper_k_nearest_neighbors=16,
+                                              attention_k_nearest_neighbors=8,
+                                              norm_eps=1e-5)
         
         self.foldingnet = Fold(self.trans_dim, step=self.fold_step, hidden_dim=256)  # rebuild a cluster point
 
