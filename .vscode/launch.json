@@ -42,6 +42,14 @@
             ]
         },
         {
+            "name": "Test PoinTrPCTransformer",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "model.PoinTrPCTransformer",
+            "args": [
+            ]
+        },
+        {
             "name": "inference",
             "type": "debugpy",
             "request": "launch",

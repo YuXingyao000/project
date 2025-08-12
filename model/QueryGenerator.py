@@ -54,7 +54,7 @@ class DynamicQueryGenerator(nn.Module):
         Forward pass of the Query Generator.
         
         Args:
-            encoded_features (torch.Tensor): Encoded features from encoder [batch, embed_dim, num_points]
+            encoded_features (torch.Tensor): Encoded features from encoder [batch, num_features, feature_dim]
             
         Returns:
             tuple: (coarse_point_cloud, query_feature) where:
@@ -62,7 +62,7 @@ class DynamicQueryGenerator(nn.Module):
                 - query_feature: [batch, embed_dim, num_query]
         """
         # Extract global feature
-        global_feature = self.increase_dim(encoded_features)  # [batch, 1024, num_points//16]
+        global_feature = self.increase_dim(encoded_features.transpose(1, 2))  # [batch, 1024, num_points//16]
         global_feature = torch.max(global_feature, dim=-1)[0]  # [batch, 1024]
         
         # Generate coarse point cloud
@@ -75,7 +75,7 @@ class DynamicQueryGenerator(nn.Module):
         ], dim=-1)  # [batch, num_query, 3 + 1024]
         
         # Process query features through MLP
-        query_feature = self.query_conv(query_feature.transpose(1, 2))  # [batch, embed_dim, num_query]
+        query_feature = self.query_conv(query_feature.transpose(1, 2)).transpose(1, 2)  # [batch, embed_dim, num_query]
         
         return coarse_coords, query_feature
 

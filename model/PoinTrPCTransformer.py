@@ -18,7 +18,7 @@ class PoinTrPCTransformer(nn.Module):
     3. Geometry-Aware Transformer Decoder: Refines query proxy
     """
     
-    def __init__(self, in_chans=3, embed_dim=384, depth=[[1, 5], [1, 7]], num_heads=6, num_query=224):
+    def __init__(self, in_chans=3, embed_dim=384, num_heads=6, num_query=224, encoder_depth=[1, 5], decoder_depth=[1, 7], grouper_downsample=[4, 16], grouper_k_nearest_neighbors=16, attention_k_nearest_neighbors=8, norm_eps=1e-5):
         """
         Args:
             in_chans (int): Number of input channels (coordinates)
@@ -35,8 +35,12 @@ class PoinTrPCTransformer(nn.Module):
         self.encoder = GeometryAwareTransformerEncoder(
             in_chans=in_chans,
             embed_dim=embed_dim,
-            depth=depth[0],
-            num_heads=num_heads
+            num_heads=num_heads,
+            depth=encoder_depth,
+            grouper_downsample=grouper_downsample,
+            grouper_k_nearest_neighbors=grouper_k_nearest_neighbors,
+            attention_k_nearest_neighbors=attention_k_nearest_neighbors,
+            norm_eps=norm_eps
         )
         
         self.query_generator = DynamicQueryGenerator(
@@ -46,8 +50,10 @@ class PoinTrPCTransformer(nn.Module):
         
         self.decoder = GeometryAwareTransformerDecoder(
             embed_dim=embed_dim,
-            depth=depth[1],
-            num_heads=num_heads
+            num_heads=num_heads,
+            depth=decoder_depth,
+            attention_k_nearest_neighbors=attention_k_nearest_neighbors,
+            norm_eps=norm_eps
         )
 
         # Initialize weights
@@ -90,14 +96,14 @@ class PoinTrPCTransformer(nn.Module):
         
         # Step 3: Geometry-aware Transformer Decoder
         refined_query_proxy = self.decoder(
-            query_coordinate=coarse_point_cloud.transpose(1, 2),  # [batch, 3, num_query]
-            query_feature=query_feature,                          # [batch, embed_dim, num_query]
-            key_coordinate=coords,                                # [batch, 3, num_points//16]
-            key_feature=encoded_features                          # [batch, embed_dim, num_points//16]
+            query_coordinate=coarse_point_cloud,  # [batch, num_query, 3]
+            query_feature=query_feature,          # [batch, num_query, embed_dim]
+            key_coordinate=coords,                # [batch, num_points//16, 3]
+            key_feature=encoded_features          # [batch, num_points//16, embed_dim]
         )
         
         # Return the final results
-        return refined_query_proxy.transpose(1, 2).contiguous(), coarse_point_cloud
+        return refined_query_proxy, coarse_point_cloud
 
 
 if __name__ == "__main__":
@@ -113,9 +119,14 @@ if __name__ == "__main__":
     model = PoinTrPCTransformer(
         in_chans=3, 
         embed_dim=384, 
-        depth=[[1, 5], [1, 7]], 
         num_heads=6, 
-        num_query=224
+        num_query=224,
+        encoder_depth=[1, 5],
+        decoder_depth=[1, 7],
+        grouper_downsample=[4, 16],
+        grouper_k_nearest_neighbors=16,
+        attention_k_nearest_neighbors=8,
+        norm_eps=1e-5
     ).to(device)
     
     # Test forward pass
@@ -135,7 +146,7 @@ if __name__ == "__main__":
         print(f"Query Generator output - coarse_points: {coarse_points.shape}, query_feat: {query_feat.shape}")
         
         refined_query = model.decoder(
-            query_coordinate=coarse_points.transpose(1, 2),
+            query_coordinate=coarse_points,
             query_feature=query_feat,
             key_coordinate=coords,
             key_feature=encoded_features
