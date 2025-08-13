@@ -44,7 +44,7 @@
             "name": "dataset",
             "type": "debugpy",
             "request": "launch",
-            "module": "dataset_debug",
+            "module": "dataset.dataset",
             "args": [
 
             ]
