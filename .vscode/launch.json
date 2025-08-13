@@ -26,6 +26,30 @@
             }
         },
         {
+            "name": "partial_point_cloud",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "tools.create_partial_point_cloud",
+            "args": [
+                "--data_root",
+                "/mnt/d/data/processed_test_data",
+                "--output_root",
+                "/mnt/d/data/processed_test_data_partial",
+                "--radius",
+                "2",
+                "--is_evaluation",
+            ]
+        },
+        {
+            "name": "dataset",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "dataset.dataset",
+            "args": [
+
+            ]
+        },
+        {
             "name": "train",
             "type": "debugpy",
             "request": "launch",

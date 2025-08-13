@@ -1,11 +1,9 @@
 import os
 import torch
 import numpy as np
-import trimesh
 from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
 
-import dataset.transform as transform 
 
 class ABCDataset(Dataset):
     def __init__(self, root, level='simple', mode='train'):
@@ -96,8 +94,69 @@ class ABCDataset(Dataset):
         return gt_brep_grid_tensor, gt_point_cloud_tensor, partial_point_cloud, cropped_point_cloud
         
     
+class DeepCADDataset(Dataset):
+    def __init__(self, data_root, index_path):
+        self.data_root = Path(data_root)
+        self.index_path = Path(index_path)  
+        
+        with open(self.index_path, 'r') as f:
+            loaded_indices = [line.strip() for line in f.readlines()]
+        
+        all_ids = [model_id for model_id in os.listdir(self.data_root) if os.path.isdir(self.data_root / model_id)]
+        loaded_indices = [model_id for model_id in loaded_indices if model_id in all_ids]
+        
+        self.model_ids = loaded_indices
+        
+    def __len__(self):
+        return len(self.model_ids)
+    
+    def __getitem__(self, idx):
+        model_id = self.model_ids[idx]
+        
+        # Load BREP grids (shape: [num_faces, 16, 16, 6])
+        brep_data = np.load(self.data_root / model_id / f"{model_id}.npz")
+        gt_brep_grid = brep_data["face_sample_points"]  # (face_num, 16, 16, 6)
+        
+        # Drop normal vectors, keep only position vectors (first 3 dimensions)
+        gt_brep_grid = gt_brep_grid[:, :, :, :3]  # (face_num, 16, 16, 3)
+        
+        # Pad BREP grid to fixed size (30, 16, 16, 3)
+        num_faces = gt_brep_grid.shape[0]
+        max_faces = 30
+        
+        if num_faces < max_faces:
+            # Pad with zeros for missing faces
+            padding_shape = (max_faces - num_faces, 16, 16, 3)
+            padding = np.zeros(padding_shape, dtype=gt_brep_grid.dtype)
+            gt_brep_grid = np.concatenate([gt_brep_grid, padding], axis=0)
+        
+        # Load full point cloud (shape: [8192, 3])
+        pc_data = np.load(self.data_root / model_id / f"{model_id}_pc.npz")
+        gt_point_cloud = pc_data["points"]  # (8192, 3)
+        
+        # Convert to tensors
+        gt_brep_grid_tensor = torch.from_numpy(gt_brep_grid).float()
+        gt_point_cloud_tensor = torch.from_numpy(gt_point_cloud).float()
+        
+        # Validate shapes
+        assert gt_point_cloud_tensor.shape == (8192, 3), f"Point cloud has shape {gt_point_cloud_tensor.shape}, expected (8192, 3)"
+        assert gt_brep_grid_tensor.shape == (30, 16, 16, 3), f"BREP grid has shape {gt_brep_grid_tensor.shape}, expected (30, 16, 16, 3)"
+        
+        import h5py
+        with h5py.File(self.data_root / model_id / f"{model_id}_cropped_pc.h5", 'r') as f:
+            # Randomly select one of the 64 preprocessed samples
+            num_samples = int(f.attrs['num_samples'])
+            sample_idx = np.random.randint(0, num_samples)
+            # Load the selected sample and convert to numpy array
+            partial_data = f['input_data'][sample_idx]
+            crop_data = f['crop_data'][sample_idx]
+            partial_point_cloud = torch.from_numpy(np.array(partial_data)).float()  # (2048, 3)
+            cropped_point_cloud = torch.from_numpy(np.array(crop_data)).float()   # (2048, 3)
+        
+        return gt_brep_grid_tensor, gt_point_cloud_tensor, partial_point_cloud, cropped_point_cloud
+
 if __name__ == "__main__":
-    dataset = ABCDataset(root='/mnt/d/data/processed_data_step', mode='train')
+    dataset = DeepCADDataset(data_root='/mnt/d/data/processed_deepcad', index_path='/mnt/d/data/DeepCAD/data_index/deduplicated_deepcad_training_7_30.txt')
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=4)
     for idx, (gt_brep_grid, gt_point_cloud, partial_point_cloud, cropped_point_cloud) in enumerate(dataloader):
         print(gt_brep_grid.shape)
