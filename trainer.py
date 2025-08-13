@@ -3,7 +3,7 @@ import os
 # Set environment variable to help with memory fragmentation
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
-from model import PoinTr
+from model import AdaPoinTr
 from utils import misc
 import time
 from dataset.dataset import ABCDataset
@@ -35,9 +35,9 @@ def validate(model, val_dataloader, device):
             partial = partial_point_cloud.to(device)
             cropped = cropped_point_cloud.to(device)
 
-            coarse_point_cloud, rebuild_points = model(partial)
+            ret = model(partial)
             
-            sparse_loss, brep_loss = model.get_loss(coarse_point_cloud, rebuild_points, gt)
+            sparse_loss, brep_loss = model.get_loss(ret, gt)
             
             total_loss_val = sparse_loss + brep_loss
             
@@ -46,7 +46,7 @@ def validate(model, val_dataloader, device):
             num_batches += 1
             
             # Clear variables to free memory
-            del gt, gt_brep_grid, partial, cropped, coarse_point_cloud, rebuild_points
+            del gt, gt_brep_grid, partial, cropped, ret
             del sparse_loss, total_loss_val
     
     # Calculate average losses
@@ -72,7 +72,7 @@ def train():
         free_memory = torch.cuda.memory_allocated(0) / 1024**3
         print(f"Currently allocated: {free_memory:.2f} GB")
     
-    base_model = PoinTr()
+    base_model = AdaPoinTr()
     base_model.to(device)
 
     # Reduce batch sizes to prevent OOM
@@ -125,9 +125,9 @@ def train():
             partial = partial_point_cloud.to(device)
             cropped = cropped_point_cloud.to(device)
 
-            coarse_point_cloud, rebuild_points = base_model(partial)
+            ret = base_model(partial)
             
-            sparse_loss, fine_loss = base_model.get_loss(coarse_point_cloud, rebuild_points, gt)
+            sparse_loss, fine_loss = base_model.get_loss(ret, gt)
          
             _loss = sparse_loss + fine_loss
             _loss.backward()
@@ -148,7 +148,7 @@ def train():
             })
             
             # Clear variables to free memory
-            del gt, gt_brep_grid, partial, cropped, coarse_point_cloud, rebuild_points
+            del gt, gt_brep_grid, partial, cropped, ret
             del sparse_loss, _loss
 
         # Calculate average training losses

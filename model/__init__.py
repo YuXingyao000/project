@@ -8,6 +8,7 @@ for point cloud completion tasks.
 # Main model classes
 from .PoinTrPCTransformer import PoinTrPCTransformer
 from .PoinTr import PoinTr
+from .AdaPoinTr import AdaPoinTr
 
 # Attention and transformer components
 from .Attention import MultiHeadAttention, FeedForward
@@ -40,6 +41,7 @@ __all__ = [
     # Main models
     'PoinTrPCTransformer',
     'PoinTr',
+    'AdaPoinTr',
     
     # Attention components
     'MultiHeadAttention',
