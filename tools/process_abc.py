@@ -35,7 +35,7 @@ def process_step_folder(data_root, output_root, step_ids, brep_sample_resolution
             if not os.path.exists(output_root / step_id):
                 os.makedirs(output_root / step_id)
             reader = ABCReader()
-            reader.read_step_file(data_root / step_id / os.listdir(data_root / step_id)[0]) # Only one step file in each ABC folder
+            reader.read_step_file(data_root / step_id / "normalized_shape.step") # Only one step file in each ABC folder
             solids = reader.solids
             if len(solids) > 1:
                 raise ValueError(f"Step {step_id} has {len(solids)} solids, skipping")
@@ -52,8 +52,8 @@ def process_step_folder(data_root, output_root, step_ids, brep_sample_resolution
             solid_processor.export_point_cloud_numpy(output_root / step_id / f"{step_id}_pc.npz")
             solid_processor.export_random_cropped_pc(output_root / step_id / f"{step_id}_cropped_pc.h5")
             solid_processor.export_scanned_point_cloud(output_root / step_id / f"{step_id}_scanned_pc_cube.h5", strategy='cube', n_points=scanned_pc_n_points)
-            solid_processor.export_scanned_point_cloud(output_root / step_id / f"{step_id}_scanned_pc_sphere.h5", strategy='sphere', n_points=scanned_pc_n_points)
-            solid_processor.export_photos(output_root / step_id / f"{step_id}_photos.npz")
+            # solid_processor.export_scanned_point_cloud(output_root / step_id / f"{step_id}_scanned_pc_sphere.h5", strategy='sphere', n_points=scanned_pc_n_points)
+            # solid_processor.export_photos(output_root / step_id / f"{step_id}_photos.npz")
         except Exception as e:
             with open(output_root / "error.txt", "a") as f:
                 tb_list = traceback.extract_tb(sys.exc_info()[2])
