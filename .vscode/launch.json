@@ -53,9 +53,12 @@
             "name": "train",
             "type": "debugpy",
             "request": "launch",
-            "module": "trainer",
+            "module": "ddp_trainer",
             "args": [
-            ]
+            ],
+            "env": {
+                "TORCH_DISTRIBUTED_DEBUG": "DETAIL"
+            }
         },
         {
             "name": "Test AdaPoinTrPCTransformer",

@@ -91,7 +91,7 @@ class AdaPoinTr(nn.Module):
 
     def get_loss(self, ret, gt):
         if self.training:
-            pred_coarse, denoised_coarse, denoised_fine, pred_fine = ret
+            pred_coarse, denoised_coarse, pred_fine, denoised_fine = ret
             assert pred_fine.size(1) == gt.size(1)
             # denoise loss
             idx = knn_index(self.factor, denoised_coarse.transpose(1, 2), gt.transpose(1, 2)) # B n k 
@@ -113,7 +113,7 @@ class AdaPoinTr(nn.Module):
             loss_coarse_l, loss_coarse_r, _, _ = self.loss_func(pred_coarse, gt)
             loss_fine_l, loss_fine_r, _, _ = self.loss_func(pred_fine, gt)
             loss_recon = (loss_coarse_l.mean(dim=1) + loss_coarse_r.mean(dim=1)).mean() + (loss_fine_l.mean(dim=1) + loss_fine_r.mean(dim=1)).mean()
-            return torch.zeros_like(loss_recon), loss_recon
+            return loss_recon
 
     def forward(self, xyz):
         q, coarse_point_cloud = self.base_model(xyz) # B M C and B M 3
@@ -144,8 +144,7 @@ class AdaPoinTr(nn.Module):
             assert pred_fine.size(1) == self.num_query * self.factor
             assert pred_coarse.size(1) == self.num_query
 
-            ret = (pred_coarse, denoised_coarse, denoised_fine, pred_fine)
-            return ret
+            return pred_coarse, denoised_coarse, pred_fine, denoised_fine
 
         else:
             denoise_length = 0
@@ -155,5 +154,4 @@ class AdaPoinTr(nn.Module):
             assert rebuild_points.size(1) == self.num_query * self.factor
             assert coarse_point_cloud.size(1) == self.num_query
 
-            ret = (coarse_point_cloud, rebuild_points)
-            return ret
+            return coarse_point_cloud, rebuild_points
