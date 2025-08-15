@@ -1,8 +1,42 @@
-dataset:
-  class_name: ABCDataset
-  data_root: /mnt/d/data/test
-  mode: train
-  level: simple
+random_seed: 114514
+
+datasets:
+  module_name: dataset.dataset
+  class_name: DeepCADDataset
+  train:
+    data_root: /mnt/d/data/processed_deepcad
+    index_path: /mnt/d/data/DeepCAD/data_index/deduplicated_deepcad_training_7_30.txt
+  val:
+    data_root: /mnt/d/data/processed_deepcad
+    index_path: /mnt/d/data/DeepCAD/data_index/deduplicated_deepcad_validation_7_30.txt
+
+model:
+  module_name: model.AdaPoinTr
+  class_name: AdaPoinTr
+  params:
+    trans_dim: 384
+    num_query: 512
+    num_points: 8192
+    in_chans: 3
+    embed_dim: 384
+    encoder_depth: [1, 5]
+    decoder_depth: [1, 7]
+    num_heads: 6
+    grouper_k_nearest_neighbors: 16
+    grouper_downsample: [4, 8]
+    attention_k_nearest_neighbors: 8
+    num_noised_query: 64
+    norm_eps: 0.000001
+
+
+trainer:
+  train_batch: 32
+  val_batch: 64
+  epochs: 600
   num_workers: 4
-  pin_memory: True
-  batch_size: 1
+  optimizer:
+    class_name: AdamW
+    params:
+      lr: 1e-3
+      weight_decay: 5e-4
+  log_dir: runs/AdaPoinTr_DeepCAD

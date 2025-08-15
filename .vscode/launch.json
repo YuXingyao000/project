@@ -53,7 +53,7 @@
             "name": "train",
             "type": "debugpy",
             "request": "launch",
-            "module": "ddp_trainer",
+            "module": "AdaTrainer",
             "args": [
             ],
             "env": {

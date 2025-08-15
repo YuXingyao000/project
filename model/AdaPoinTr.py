@@ -64,13 +64,24 @@ class SimpleRebuildFCLayer(nn.Module):
         return rebuild_pc
 
 class AdaPoinTr(nn.Module):
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__()
-        self.trans_dim = 384
-        self.num_query = 512
-        self.num_points = 8192
+        self.trans_dim = kwargs.get('trans_dim', 384)
+        self.num_query = kwargs.get('num_query', 512)
+        self.num_points = kwargs.get('num_points', 8192)
 
-        self.base_model = AdaPoinTrPCTransformer()
+        self.base_model = AdaPoinTrPCTransformer(
+            in_chans=kwargs.get('in_chans', 3),
+            embed_dim=kwargs.get('embed_dim', 384),
+            encoder_depth=kwargs.get('encoder_depth', [1, 5]),
+            decoder_depth=kwargs.get('decoder_depth', [1, 7]),
+            num_heads=kwargs.get('num_heads', 6),
+            grouper_k_nearest_neighbors=kwargs.get('grouper_k_nearest_neighbors', 16),
+            grouper_downsample=kwargs.get('grouper_downsample', [4, 8]),
+            attention_k_nearest_neighbors=kwargs.get('attention_k_nearest_neighbors', 8),
+            num_noised_query=kwargs.get('num_noised_query', 64),
+            norm_eps=kwargs.get('norm_eps', 0.000001),
+        )
         
         self.factor = self.num_points // self.num_query
         assert self.num_points % self.num_query == 0
@@ -83,11 +94,11 @@ class AdaPoinTr(nn.Module):
             nn.Conv1d(1024, 1024, 1)
         )
         self.reduce_map = nn.Linear(self.trans_dim + 1027, self.trans_dim)
-        self.build_loss_func()
+        self.loss_func = self.setup_loss_func()
 
-    def build_loss_func(self):
+    def setup_loss_func(self):
         from chamfer_distance import ChamferDistance
-        self.loss_func = ChamferDistance()
+        return ChamferDistance()
 
     def get_loss(self, ret, gt):
         if self.training:
@@ -105,7 +116,7 @@ class AdaPoinTr(nn.Module):
             loss_coarse_l, loss_coarse_r, _, _ = self.loss_func(pred_coarse, gt)
             loss_fine_l, loss_fine_r, _, _ = self.loss_func(pred_fine, gt)
             loss_recon = (loss_coarse_l.mean(dim=1) + loss_coarse_r.mean(dim=1)).mean() + (loss_fine_l.mean(dim=1) + loss_fine_r.mean(dim=1)).mean()
-            return loss_denoised, loss_recon
+            return {'denoised': loss_denoised, 'recon': loss_recon}
         else:
             pred_coarse, pred_fine = ret
             assert pred_fine.size(1) == gt.size(1)
@@ -113,7 +124,7 @@ class AdaPoinTr(nn.Module):
             loss_coarse_l, loss_coarse_r, _, _ = self.loss_func(pred_coarse, gt)
             loss_fine_l, loss_fine_r, _, _ = self.loss_func(pred_fine, gt)
             loss_recon = (loss_coarse_l.mean(dim=1) + loss_coarse_r.mean(dim=1)).mean() + (loss_fine_l.mean(dim=1) + loss_fine_r.mean(dim=1)).mean()
-            return loss_recon
+            return {'recon': loss_recon}
 
     def forward(self, xyz):
         q, coarse_point_cloud = self.base_model(xyz) # B M C and B M 3
