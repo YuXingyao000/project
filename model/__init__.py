@@ -1,10 +1,3 @@
-"""
-PCTransformer model package.
-
-This package contains the modular implementation of the PCTransformer
-for point cloud completion tasks.
-"""
-
 # Main model classes
 from .PoinTrPCTransformer import PoinTrPCTransformer
 from .PoinTr import PoinTr

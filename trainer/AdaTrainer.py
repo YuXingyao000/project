@@ -2,7 +2,7 @@ import hydra
 import torch
 from omegaconf import OmegaConf
 from utils import misc
-from DDPTrainer import DDPTrainer
+from trainer.DDPTrainer import DDPTrainer
 
 class AdaTrainer(DDPTrainer):
     def __init__(self, config: OmegaConf):
