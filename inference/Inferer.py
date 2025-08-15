@@ -1,13 +1,11 @@
 import torch
 from tqdm import tqdm
-import numpy as np
 from torch.utils.data import Dataset, DataLoader
-from model.PoinTr import PoinTr
 
 class Inferer:
-    def __init__(self, model_path):
+    def __init__(self, model, model_path):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = PoinTr()
+        self.model = model
         
         # Load the checkpoint dictionary
         checkpoint = torch.load(model_path, map_location=self.device)
