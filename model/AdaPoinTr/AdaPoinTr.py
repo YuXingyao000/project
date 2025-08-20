@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 
-from model.AdaPoinTrPCTransformer import AdaPoinTrPCTransformer
-from model.Utils import knn_index
+from .AdaPoinTrPCTransformer import AdaPoinTrPCTransformer
+from .Utils import knn_index
 
 def index_points(points, idx):
     """

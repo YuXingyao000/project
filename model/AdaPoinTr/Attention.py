@@ -1,15 +1,8 @@
-"""
-Attention mechanisms for point cloud transformer.
-
-This module contains the core attention components used in the PCTransformer,
-including multi-head attention and various attention blocks.
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
-from model.DGCNN import kNNQuery
+from .DGCNN import kNNQuery
 
 class MultiHeadAttention(nn.Module):
     """

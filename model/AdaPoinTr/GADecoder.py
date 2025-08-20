@@ -1,6 +1,6 @@
 import torch.nn as nn
 
-from model.TransformerBlocks import (
+from .TransformerBlocks import (
     CrossAttentionBlock,
     GeometryAwareCrossAttentionBlock
 )

@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from model.Utils import fps_downsample, jitter_points
+from .Utils import fps_downsample, jitter_points
 
 class DynamicQueryGenerator(nn.Module):
     """

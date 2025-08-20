@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from model.Attention import MultiHeadAttention, FeedForward, GraphAttention
+from .Attention import MultiHeadAttention, FeedForward, GraphAttention
 
 
 class SelfAttentionBlock(nn.Module):

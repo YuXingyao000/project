@@ -1,9 +1,9 @@
 import torch
 from torch import nn
-from model.Utils import fps_downsample, knn_index
 from einops import rearrange, repeat
 
-from model.Utils import extract_coordinates_and_features
+from .Utils import fps_downsample, knn_index
+from .Utils import extract_coordinates_and_features
 
 class kNNQuery(nn.Module):
     """

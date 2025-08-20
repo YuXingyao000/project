@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from pointnet2_ops import pointnet2_utils
-from model.PoinTrPCTransformer import PoinTrPCTransformer
+from .PoinTrPCTransformer import PoinTrPCTransformer
 
 
 def fps(pc, num):
