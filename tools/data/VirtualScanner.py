@@ -111,30 +111,35 @@ class VirtualScannerBackProjection:
         fx, fy = self.intrinsic[0, 0], self.intrinsic[1, 1]
         cx, cy = self.intrinsic[0, 2], self.intrinsic[1, 2]
 
+        # Pixel grid
         u, v = np.meshgrid(np.arange(w), np.arange(h))
-        Z = depth
+
+        # Valid mask first (avoid nan/inf propagation)
+        mask = np.isfinite(depth) & (depth > 0)
+
+        # Keep only valid depth + corresponding pixel coords
+        Z = depth[mask]
+        u = u[mask]
+        v = v[mask]
+        normals_valid = normals[mask]
+
+        # Camera coordinates
         X = (u - cx) * Z / fx
         Y = (v - cy) * Z / fy
-        ones = np.ones_like(Z)
+        pts_cam = np.stack([X, Y, Z, np.ones_like(Z)], axis=-1)
 
-        pts_cam = np.stack([X, Y, Z, ones], axis=-1).reshape(-1, 4)
-        mask = np.isfinite(Z).reshape(-1)
-
-        # Transform points to world space
+        # Transform points → world
         pts_world = (extrinsic @ pts_cam.T).T[:, :3]
 
-        # Transform normals (rotation only, no translation)
+        # Transform normals → world (rotation only, no translation)
         R = extrinsic[:3, :3]
-        normals_flat = normals.reshape(-1, 3)
-        normals_world = (R @ normals_flat.T).T
+        normals_world = (R @ normals_valid.T).T
 
-        result_pc = pts_world[mask]
-        result_normals = normals_world[mask]
-        assert result_pc.shape == result_normals.shape
-        
-        return np.hstack([result_pc, result_normals])
+        # Concatenate [x, y, z, nx, ny, nz]
+        result = np.hstack([pts_world, normals_world])
+        return result
 
-    def save_depth_as_image(depth, path="depth.png"):
+    def save_depth_as_image(self, depth, path="depth.png"):
         depth_vis = depth.copy()
         depth_vis[np.isinf(depth_vis)] = 0  # set inf to 0
         depth_vis[np.isnan(depth_vis)] = 0  # set NaN to 0
