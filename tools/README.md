@@ -26,5 +26,6 @@ python -m tools.process_abc \
 > ```
 > sudo apt-get update
 > sudo apt-get install xvfb
-> Xvbf :99 -screen 0 1920x1080x24 & export DISPLAY=:99
+> Xvbf :99 -screen 0 1920x1080x24 
+> export DISPLAY=:99
 > ```
