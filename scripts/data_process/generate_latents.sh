@@ -1,0 +1,1 @@
+python -m inference.HoLaEncode --data_root /mnt/d/data/processed_deepcad --model_ckpt /mnt/d/new-hola/ckpt/HoLa_VAE_DeepCAD.ckpt

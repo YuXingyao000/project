@@ -183,7 +183,7 @@ class AttnIntersection(nn.Module):
 # ref: https://arxiv.org/abs/2504.14257
 # Modified and light-weight version
 class HoLaAutoEncoder(nn.Module):
-    def __init__(self, in_channels=6, primitive_feature_dim=768, face_latent_dim=8, gaussian_weights=1e-6, ):
+    def __init__(self, in_channels=6, primitive_feature_dim=768, face_latent_dim=8, gaussian_weights=1e-6):
         super().__init__()
         self.dim_shape = primitive_feature_dim
         self.dim_latent = face_latent_dim
@@ -336,15 +336,15 @@ class HoLaAutoEncoder(nn.Module):
         fused_face_features_gau = fused_face_features_gau.reshape(-1, self.df, 2)
         mean = fused_face_features_gau[:, :, 0]
         logvar = fused_face_features_gau[:, :, 1]
+        std = torch.exp(0.5 * logvar)
 
         if self.training:
-            std = torch.exp(0.5 * logvar)
             eps = torch.randn_like(std)
             fused_face_features = eps.mul(std).add_(mean)
         else:
             fused_face_features = mean
         
-        return fused_face_features, mean, logvar
+        return fused_face_features, mean, std
 
     
     def profile_time(self, timer, key):
@@ -511,28 +511,17 @@ class HoLaAutoEncoder(nn.Module):
     # And by the way, I cannot even find the trainer for this VAE.
     # Only god can know what have they done ...
     # But the forwarding can work now
-    def forward(self, batch):
-        (face_points, face_norm, 
-         edge_points, edge_norm,
-         face_bbox, edge_bbox,
-         edge_face_connectivity, zero_positions,
-         attn_mask, 
-         num_face_record) = batch
+    def forward(self, 
+                face_points, 
+                edge_points,
+                edge_face_connectivity, 
+                zero_positions,
+                attn_mask, 
+                num_face_record):
         
         face_latent_feature, edge_feature = self.encode(face_points, edge_points, attn_mask, edge_face_connectivity, num_face_record)
         face_feature, mean, logvar = self.sample(face_latent_feature)
         face_z, is_intersect, half_edge_feature, half_edge_coords, half_edge_bbox = self.decode(face_feature, edge_feature, attn_mask, edge_face_connectivity, zero_positions)
 
         return face_z, is_intersect, half_edge_feature, half_edge_coords, half_edge_bbox, mean, logvar
-
-    # WTF 
-    def inference(self, face_features):
-        pred_data = self.decode(face_features)
-        return {
-            "face_features": face_features.to(torch.float32).cpu().numpy(),
-            "pred_face_adj": pred_data["pred_face_adj"],
-            "pred_face_adj_prob": pred_data["pred_edge_face_connectivity"].reshape(-1).to(torch.float32).cpu().numpy(),
-            "pred_edge_face_connectivity": pred_data["pred_edge_face_connectivity"].to(torch.float32).cpu().numpy(),
-            "pred_face": denormalize_coord(pred_data["face_points_local"], pred_data["face_center_scale"])[...,:3].to(torch.float32).cpu().numpy(),
-            "pred_edge": denormalize_coord(pred_data["edge_points_local"], pred_data["edge_center_scale"])[...,:3].to(torch.float32).cpu().numpy(),
-        }
+    
