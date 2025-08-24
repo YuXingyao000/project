@@ -410,8 +410,8 @@ class SolidProcessor:
         edge_sample_points = np.stack(edge_sample_points, axis=0)
         
         result = {
-            'face_sample_points'        : edge_sample_points.astype(np.float32),
-            'half_edge_sample_points'   : face_sample_points.astype(np.float32),
+            'face_sample_points'        : face_sample_points.astype(np.float32),
+            'half_edge_sample_points'   : edge_sample_points.astype(np.float32),
             'edge_face_connectivity'    : edge_face_connectivity.astype(np.int64),
             "face_adj_matrix"           : face_adj,
             "non_intersection_index"    : zero_positions,
